@@ -100,7 +100,7 @@ From `backend/`:
 bash ./mvnw compile spring-boot:run
 ```
 
-On Windows, use `.\mvnw.cmd compile spring-boot:run`. The backend build needs Node/npm and builds the matching frontend automatically. Open the bundled panel at **http://localhost:8081**. `bash ./mvnw verify` also produces an executable JAR containing the verified panel.
+On Windows, use `.\mvnw.cmd compile spring-boot:run`. The backend build needs Node/npm and builds the matching frontend automatically. Open the bundled panel at **http://localhost:8081**. `bash ./mvnw verify` also produces an executable JAR containing the verified panel. See the [backend and dashboard build guide](docs/build-backend-panel.md) for packaging and IntelliJ setup.
 
 For frontend development with hot reload, optionally use a second terminal:
 
