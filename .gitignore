@@ -4,6 +4,8 @@
 # Playwright
 /playwright/sessions/
 /playwright/example.png
+/playwright/logs/
+/logs/
 
 # Environment variables
 /frontend/.env
