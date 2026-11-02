@@ -1,8 +1,7 @@
 package pl.flipbot.playwright.worker;
 
-import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.util.RuntimeEnvironment;
 
-@Slf4j
 record CatalogConcurrencyConfig(
         int maxConcurrentCatalogScans,
         long retryDelayMillis
@@ -34,33 +33,10 @@ record CatalogConcurrencyConfig(
     }
 
     static CatalogConcurrencyConfig fromRaw(String rawMaxConcurrentScans) {
-        int maxConcurrentScans = DEFAULT_MAX_CONCURRENT_CATALOG_SCANS;
-
-        if (rawMaxConcurrentScans != null
-                && !rawMaxConcurrentScans.isBlank()) {
-            try {
-                int parsed = Integer.parseInt(
-                        rawMaxConcurrentScans.trim()
-                );
-                if (parsed < 1 || parsed > 100) {
-                    throw new IllegalArgumentException(
-                            "Value is outside allowed range 1..100"
-                    );
-                }
-                maxConcurrentScans = parsed;
-            } catch (RuntimeException exception) {
-                log.warn(
-                        "Invalid {}='{}'. Using default {}.",
-                        MAX_CONCURRENT_CATALOG_SCANS_ENV,
-                        rawMaxConcurrentScans,
-                        DEFAULT_MAX_CONCURRENT_CATALOG_SCANS
-                );
-            }
-        }
-
         return new CatalogConcurrencyConfig(
-                maxConcurrentScans,
-                DEFAULT_RETRY_DELAY_MILLIS
-        );
+                RuntimeEnvironment.intValue(MAX_CONCURRENT_CATALOG_SCANS_ENV, rawMaxConcurrentScans,
+                        DEFAULT_MAX_CONCURRENT_CATALOG_SCANS, 1, 100),
+                DEFAULT_RETRY_DELAY_MILLIS);
     }
+
 }

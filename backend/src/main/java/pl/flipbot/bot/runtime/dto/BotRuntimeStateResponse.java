@@ -33,4 +33,6 @@ public class BotRuntimeStateResponse {
     private int sessionBlockCount;
 
     private Instant updatedAt;
+
+    //
 }

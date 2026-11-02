@@ -1,31 +1,28 @@
-# FlipBot Dashboard
+# FlipBot dashboard
 
-React and TypeScript dashboard for [FlipBot](../README.md). It provides the operator interface for bot configuration, listing history, negotiation settings, market statistics and runtime monitoring.
+React, TypeScript and Vite frontend for bot configuration, saved offers, analytics and runtime monitoring.
 
-**Status:** part of the actively developed FlipBot application. The [root README](../README.md) contains the application demo, architecture and backend setup requirements.
+## Development
 
-## Local development
-
-Requirements: Node.js 22+, npm, and a configured FlipBot backend listening on `localhost:8081`.
+Use Node.js 22+ and npm. Start the backend on port 8081, then run:
 
 ```shell
 npm ci
 npm run dev
 ```
 
-Run these commands from `frontend/`. Vite proxies `/api` requests to `http://localhost:8081` as configured in [vite.config.ts](vite.config.ts).
+Vite proxies `/api` to `http://localhost:8081`. Keep account credentials and local environment overrides outside Git.
 
-## Checks and production build
+## Build and checks
 
 ```shell
 npm run lint
+npm run test:refactor
 npm run build
 ```
 
-The build runs TypeScript compilation followed by Vite and writes static output to `dist/`. `npm run preview` serves the built frontend locally; it is not a replacement for the backend or a production deployment configuration.
+The regression suite compares views, request handling and styles against commit `184d99a80e4b8b75e86483e935ec0de206394a23` in this public repository. Shallow clones need to fetch that commit first; no private repository history is needed.
 
-## Relationship to the mobile app
+The backend Maven build runs `scripts/build-panel.mjs` to build and bundle the matching frontend into `backend/target/classes/static`. The panel manifest records source and asset hashes, and a matching bundle is reused. Generated assets are not committed.
 
-[FlipBot Mobile](../mobile/README.md) displays the same dashboard through a WebView. Building this module alone does not automatically update a dashboard bundle already packaged into the backend.
-
-See [package.json](package.json) for the actual scripts and dependencies and [CI](../.github/workflows/ci.yml) for automated validation.
+Feature components and controllers live under `src/features/`; route pages live under `src/pages/`, API clients under `src/api/`, shared helpers under `src/shared/`, and styles under `src/styles/`.

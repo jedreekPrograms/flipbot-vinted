@@ -43,5 +43,31 @@ final class SessionSnapshotValidator {
                             + " while the active session still contains cookies; refusing to replace the last-known-good session."
             );
         }
+
+        // An old authenticated header may remain visible after the browser
+        // loses its tokens. Analytics/consent cookies do not make that state a
+        // replacement for the authenticated checkpoint.
+        for (String token : new String[]{"access_token_web", "refresh_token_web"}) {
+            if (containsVintedToken(activeCookies, token) && !containsVintedToken(stagedCookies, token)) {
+                throw new IllegalStateException("Playwright session state for bot " + botId
+                        + " lost established Vinted " + token
+                        + "; refusing to replace the last-known-good session.");
+            }
+        }
+    }
+
+    private static boolean containsVintedToken(JsonNode cookies, String name) {
+        for (JsonNode cookie : cookies) {
+            String domain = cookie.path("domain").asText("").toLowerCase(java.util.Locale.ROOT);
+            if (domain.startsWith(".")) {
+                domain = domain.substring(1);
+            }
+            if (name.equals(cookie.path("name").asText())
+                    && !cookie.path("value").asText("").isBlank()
+                    && ("vinted.pl".equals(domain) || domain.endsWith(".vinted.pl"))) {
+                return true;
+            }
+        }
+        return false;
     }
 }

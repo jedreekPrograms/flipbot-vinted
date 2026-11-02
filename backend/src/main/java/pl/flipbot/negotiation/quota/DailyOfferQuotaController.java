@@ -2,7 +2,6 @@ package pl.flipbot.negotiation.quota;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -18,13 +17,6 @@ import pl.flipbot.negotiation.quota.dto.OfferQuotaReservationResponse;
 public class DailyOfferQuotaController {
 
     private final DailyOfferQuotaService dailyOfferQuotaService;
-
-    @GetMapping
-    public ResponseEntity<DailyOfferQuotaResponse> getQuota(
-            @PathVariable Long botId
-    ) {
-        return ResponseEntity.ok(dailyOfferQuotaService.getQuota(botId));
-    }
 
     @PostMapping("/reserve")
     public ResponseEntity<OfferQuotaReservationResponse> reserveSlot(

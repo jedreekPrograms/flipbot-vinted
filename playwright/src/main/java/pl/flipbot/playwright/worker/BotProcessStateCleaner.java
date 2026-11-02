@@ -1,8 +1,8 @@
 package pl.flipbot.playwright.worker;
 
+import pl.flipbot.playwright.catalog.CatalogWorkProcessor;
 import pl.flipbot.playwright.negotiation.ConsecutiveContactUnavailableTracker;
 import pl.flipbot.playwright.negotiation.MultiProductExistingNegotiationProcessor;
-import pl.flipbot.playwright.processing.CatalogWorkProcessor;
 
 final class BotProcessStateCleaner {
 

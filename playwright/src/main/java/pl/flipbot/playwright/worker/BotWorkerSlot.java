@@ -1,22 +1,17 @@
 package pl.flipbot.playwright.worker;
 
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.BotApiClient;
 import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
-import pl.flipbot.playwright.api.runtime.RuntimeTelemetryStateResponse;
 import pl.flipbot.playwright.browser.BrowserManager;
 import pl.flipbot.playwright.model.BotDetailsDto;
-import pl.flipbot.playwright.target.VintedRateLimitException;
-import pl.flipbot.playwright.target.VintedSessionBlockedException;
-
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import pl.flipbot.playwright.util.FailureMessages;
 
 @Slf4j
 public class BotWorkerSlot implements Runnable {
 
-    private static final long SESSION_BLOCK_FALLBACK_DELAY_MINUTES = 15L;
     private static final long RETIREMENT_POLL_MILLIS = 1_000L;
 
     private final int slotNumber;
@@ -26,6 +21,7 @@ public class BotWorkerSlot implements Runnable {
     private final BotSessionPreviewRegistry sessionPreviewRegistry;
 
     private final BotApiClient botApiClient = new BotApiClient();
+    private final SessionCooldown cooldown;
     private final AtomicBoolean retirementRequested = new AtomicBoolean(false);
 
     public BotWorkerSlot(
@@ -40,6 +36,7 @@ public class BotWorkerSlot implements Runnable {
         this.config = config;
         this.telemetryReporter = telemetryReporter;
         this.sessionPreviewRegistry = sessionPreviewRegistry;
+        this.cooldown = new SessionCooldown(telemetryReporter);
     }
 
     boolean requestRetirement() {
@@ -160,7 +157,7 @@ public class BotWorkerSlot implements Runnable {
                  * that claim so the bot schedule cannot remain stuck in WORKING.
                  * The retirement flag is checked again before the next claim.
                  */
-                Long persistedBlockDelayMillis = persistedSessionBlockDelay(botId);
+                Long persistedBlockDelayMillis = cooldown.remainingDelay(botId);
                 if (persistedBlockDelayMillis != null && persistedBlockDelayMillis > 0L) {
                     log.warn(
                             "[SESSION BLOCK] Bot {} was claimed after a scheduler/process refresh, but its persisted Vinted session cooldown is still active for about {} minute(s). No browser job will start early.",
@@ -212,6 +209,8 @@ public class BotWorkerSlot implements Runnable {
                             previewRequested
                     );
 
+                    BotDetailsDto bot = botApiClient.getBot(botId);
+
                     if (browserManager != null
                             && browserManager.isHeadless() != jobHeadless) {
                         browserManager = closeBrowserRuntime(
@@ -233,7 +232,6 @@ public class BotWorkerSlot implements Runnable {
                         browserManager = new BrowserManager(jobHeadless);
                     }
 
-                    BotDetailsDto bot = botApiClient.getBot(botId);
                     ScheduledBotRunExecutor runExecutor =
                             new ScheduledBotRunExecutor(bot, browserManager);
 
@@ -253,118 +251,12 @@ public class BotWorkerSlot implements Runnable {
                             config.normalDelaySeconds(jobType)
                     );
 
-                } catch (VintedSessionBlockedException exception) {
-                    delayAllJobs = true;
-                    reportQueuedAfterRun = false;
-
-                    long durationMs = elapsedMillis(startedAtNanos);
-                    int attemptNumber = 1;
-
-                    try {
-                        RuntimeTelemetryReporter.SessionBlockCooldown cooldown =
-                                telemetryReporter.sessionBlocked(
-                                        botId,
-                                        durationMs,
-                                        errorMessage(exception)
-                                );
-
-                        attemptNumber = cooldown.attemptNumber();
-                        nextDelayMillis = Math.max(
-                                0L,
-                                cooldown.nextRunAtEpochMs() - System.currentTimeMillis()
-                        );
-                    } catch (Exception telemetryException) {
-                        nextDelayMillis = TimeUnit.MINUTES.toMillis(
-                                SESSION_BLOCK_FALLBACK_DELAY_MINUTES
-                        );
-                        log.error(
-                                "[SESSION BLOCK] Could not persist/read the exponential cooldown for bot {}. Falling back to {} minutes for safety. reason={}",
-                                botId,
-                                SESSION_BLOCK_FALLBACK_DELAY_MINUTES,
-                                errorMessage(telemetryException)
-                        );
-                    }
-
-                    log.warn(
-                            "[SESSION BLOCK] Bot {} is blocked by Vinted during {}. Detection #{}. All jobs are paused for about {} minute(s). The block episode start is persisted and is NOT reset by retries.",
-                            botId,
-                            jobType,
-                            attemptNumber,
-                            Math.max(1L, TimeUnit.MILLISECONDS.toMinutes(nextDelayMillis))
-                    );
-                    log.debug(
-                            "[SESSION BLOCK] Full session-block exception for bot {} during {}.",
-                            botId,
-                            jobType,
-                            exception
-                    );
-
-                } catch (VintedRateLimitException exception) {
-                    nextDelayMillis = TimeUnit.SECONDS.toMillis(
-                            config.rateLimitDelaySeconds()
-                    );
-                    delayAllJobs = true;
-                    reportQueuedAfterRun = false;
-
-                    long durationMs = elapsedMillis(startedAtNanos);
-                    long nextRunAtEpochMs = System.currentTimeMillis() + nextDelayMillis;
-
-                    telemetryReporter.rateLimited(
-                            botId,
-                            durationMs,
-                            nextRunAtEpochMs,
-                            errorMessage(exception)
-                    );
-
-                    log.warn(
-                            "[SLOT {}] Bot {} hit an explicit Vinted rate limit during {}. All jobs for this bot are delayed by {} seconds to protect the account.",
-                            slotNumber,
-                            botId,
-                            jobType,
-                            config.rateLimitDelaySeconds()
-                    );
-                    log.debug(
-                            "[SLOT {}] Rate-limit exception for bot {} during {}.",
-                            slotNumber,
-                            botId,
-                            jobType,
-                            exception
-                    );
-
                 } catch (Exception exception) {
-                    nextDelayMillis = TimeUnit.SECONDS.toMillis(
-                            config.failureDelaySeconds()
-                    );
-                    delayAllJobs = false;
                     reportQueuedAfterRun = false;
-
-                    long durationMs = elapsedMillis(startedAtNanos);
-                    long nextRunAtEpochMs = System.currentTimeMillis() + nextDelayMillis;
-
-                    telemetryReporter.runFailed(
-                            botId,
-                            durationMs,
-                            nextRunAtEpochMs,
-                            errorMessage(exception)
-                    );
-
-                    log.error(
-                            "[SLOT {}] Bot {} failed during {}. Only {} will retry in {} seconds; the bot's other scheduled job type keeps its own schedule. reason={}",
-                            slotNumber,
-                            botId,
-                            jobType,
-                            jobType,
-                            config.failureDelaySeconds(),
-                            errorMessage(exception)
-                    );
-                    log.debug(
-                            "[SLOT {}] Full failure for bot {} during {}.",
-                            slotNumber,
-                            botId,
-                            jobType,
-                            exception
-                    );
-
+                    JobFailurePolicy.RetryPlan retry = new JobFailurePolicy(config, telemetryReporter)
+                            .afterFailure(botId, jobType, elapsedMillis(startedAtNanos), exception);
+                    nextDelayMillis = retry.delayMillis();
+                    delayAllJobs = retry.delayAllJobs();
                 } finally {
                     try {
                         scheduler.completeRun(
@@ -420,7 +312,7 @@ public class BotWorkerSlot implements Runnable {
             log.error(
                     "[SLOT {}] Worker slot stopped because its runtime failed. reason={}",
                     slotNumber,
-                    errorMessage(exception)
+                    FailureMessages.withType(exception)
             );
             log.debug(
                     "[SLOT {}] Full worker-slot runtime failure.",
@@ -465,7 +357,7 @@ public class BotWorkerSlot implements Runnable {
                     "[SLOT {}] Could not close Playwright browser runtime cleanly. reason={}, closeError={}",
                     slotNumber,
                     reason,
-                    errorMessage(exception)
+                    FailureMessages.withType(exception)
             );
             log.debug(
                     "[SLOT {}] Full browser-runtime close error.",
@@ -483,28 +375,6 @@ public class BotWorkerSlot implements Runnable {
         return null;
     }
 
-    private Long persistedSessionBlockDelay(Long botId) {
-        try {
-            RuntimeTelemetryStateResponse state = telemetryReporter.currentState(botId);
-            if (state == null
-                    || state.sessionBlockedSince() == null
-                    || state.nextRunAt() == null) {
-                return null;
-            }
-
-            long remaining = Instant.parse(state.nextRunAt()).toEpochMilli()
-                    - System.currentTimeMillis();
-            return Math.max(0L, remaining);
-        } catch (Exception exception) {
-            log.warn(
-                    "[SESSION BLOCK] Could not read persisted cooldown for bot {} before run. Continuing with the in-memory scheduler state. reason={}",
-                    botId,
-                    errorMessage(exception)
-            );
-            return null;
-        }
-    }
-
     private long elapsedMillis(long startedAtNanos) {
         return Math.max(
                 0L,
@@ -512,18 +382,4 @@ public class BotWorkerSlot implements Runnable {
         );
     }
 
-    private String errorMessage(Exception exception) {
-        String message = exception.getMessage();
-
-        if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
-        }
-
-        String firstLine = message.lines()
-                .findFirst()
-                .orElse(message)
-                .trim();
-
-        return exception.getClass().getSimpleName() + ": " + firstLine;
-    }
 }

@@ -57,6 +57,8 @@ public class BrowserManager implements AutoCloseable {
 
         this.playwright = createdPlaywright;
         this.browser = createdBrowser;
+        log.info("[BROWSER VERSION] Chromium/Chrome={} headless={} owner={}",
+                browser.version(), headless, ownerThreadName);
     }
 
     public boolean isHeadless() {
@@ -127,6 +129,7 @@ public class BrowserManager implements AutoCloseable {
             throw guardedFailure;
         }
 
+        BrowserInteractionMode.register(context, headless);
         context.addInitScript(VintedInformationalDialogGuard.script());
         context.addInitScript(OneTrustConsentGuard.script());
 

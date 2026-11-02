@@ -3,6 +3,7 @@ package pl.flipbot.listing;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.exception.InvalidRequestException;
 import pl.flipbot.listing.dto.ListingHistoryResponse;
 import pl.flipbot.listing.dto.UpdateHistoryClassificationRequest;
 
@@ -44,7 +45,7 @@ public class ListingHistoryService {
         if (request == null
                 || request.historyOutcome() == null
                 || request.offerAssessment() == null) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "History outcome and offer assessment are required."
             );
         }
@@ -92,7 +93,7 @@ public class ListingHistoryService {
         }
 
         if (purchasePrice == null || purchasePrice.signum() <= 0) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "Purchase price must be greater than zero."
             );
         }

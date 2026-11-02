@@ -72,26 +72,6 @@ public final class ListingHistoryMetadata {
         return listing.getLastFreshDiscoveryAt();
     }
 
-    public static String effectiveModelLabel(Listing listing) {
-        if (listing == null) {
-            return null;
-        }
-
-        String snapshot = normalize(listing.getProductTargetLabel());
-
-        if (snapshot != null) {
-            return snapshot;
-        }
-
-        /*
-         * Never infer a missing historical product snapshot from today's bot
-         * configuration. The bot may have been repurposed since the listing
-         * was handled. V43 performs a best-effort one-time backfill for legacy
-         * rows; anything still unresolved stays unassigned rather than being
-         * silently attributed to the wrong model.
-         */
-        return null;
-    }
 
     public static String modelLabel(
             String brand,

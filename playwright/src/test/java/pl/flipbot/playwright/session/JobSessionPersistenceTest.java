@@ -36,7 +36,7 @@ public class JobSessionPersistenceTest {
         Fixture f = new Fixture(folder.newFolder().toPath());
         when(f.page.url()).thenReturn("https://www.vinted.pl/inbox");
         Locator authenticated = mock(Locator.class);
-        when(f.page.locator("[data-testid='header-conversations-button']")).thenReturn(authenticated);
+        when(f.page.getByTestId("header-conversations-button")).thenReturn(authenticated);
         when(authenticated.count()).thenReturn(1);
         when(authenticated.nth(0)).thenReturn(authenticated);
         when(authenticated.isVisible()).thenReturn(true);

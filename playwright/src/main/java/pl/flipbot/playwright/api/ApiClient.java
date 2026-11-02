@@ -156,6 +156,22 @@ public abstract class ApiClient {
                 .timeout(REQUEST_TIMEOUT);
     }
 
+    protected void requireSuccessfulResponse(
+            HttpResponse<String> response,
+            String operation
+    ) {
+        int statusCode = response.statusCode();
+        if (statusCode >= 200 && statusCode < 300) {
+            return;
+        }
+
+        throw new IllegalStateException(
+                "Backend could not " + operation
+                        + ". HTTP status: " + statusCode
+                        + ", response: " + response.body()
+        );
+    }
+
     private HttpResponse<String> send(
             HttpRequest request,
             String method

@@ -175,6 +175,10 @@ public class ListingStatusUpdater {
         );
     }
 
+    public void markCannotNegotiate(Long botId, ListingResponseDto listing) {
+        updateDiscoveredStatus(botId, listing, "SKIPPED_CANNOT_NEGOTIATE", "[CANNOT NEGOTIATE]");
+    }
+
     public void markOutsidePriceRange(
             Long botId,
             ListingResponseDto listing

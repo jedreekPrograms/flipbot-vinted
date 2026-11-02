@@ -20,15 +20,6 @@ public final class NegotiationSelectors {
     public static final String OWN_OFFER_STATUS =
             "offer-status-title";
 
-    public static final String SELLER_OFFER_PRICE =
-            "offer-current-price-label";
-
-    public static final String SELLER_OFFER_BUY_BUTTON =
-            "offer-message-buy-button";
-
-    public static final String ACCEPTED_OFFER_BUY_BUTTON =
-            "offer-request-message-buy-button";
-
     public static final String MESSAGE_INPUT =
             "composer--input";
 

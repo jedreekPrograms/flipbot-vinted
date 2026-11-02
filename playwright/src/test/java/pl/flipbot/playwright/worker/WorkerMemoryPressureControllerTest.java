@@ -24,12 +24,12 @@ public class WorkerMemoryPressureControllerTest {
     }
 
     @Test
-    public void emergencyPressureKeepsColdStartAtFourWorkers() {
+    public void emergencyPressureShrinksBelowTheFourWorkerStartupCap() {
         WorkerMemoryPressureController controller =
                 controller(32, 1, true);
 
         assertEquals(
-                4,
+                2,
                 controller.targetSlots(10)
         );
     }
@@ -79,17 +79,17 @@ public class WorkerMemoryPressureControllerTest {
                         clock::get
                 );
 
-        assertEquals(4, controller.targetSlots(10));
+        assertEquals(2, controller.targetSlots(10));
 
         snapshot.set(healthy);
 
-        assertEquals(4, controller.targetSlots(10));
+        assertEquals(2, controller.targetSlots(10));
 
         clock.addAndGet(
                 WorkerMemoryPressureController.RECOVERY_HOLD_NANOS
         );
 
-        assertEquals(5, controller.targetSlots(10));
+        assertEquals(3, controller.targetSlots(10));
     }
 
     @Test

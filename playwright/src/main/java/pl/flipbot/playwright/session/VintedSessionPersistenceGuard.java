@@ -1,8 +1,6 @@
 package pl.flipbot.playwright.session;
 
-import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
 import pl.flipbot.playwright.context.BotContext;
 
 import java.util.Locale;
@@ -32,37 +30,15 @@ public final class VintedSessionPersistenceGuard {
             return new Check(false, "page is on Vinted authentication UI: " + url);
         }
 
-        if (hasVisible(page.locator("[data-testid='header-conversations-button']"))) {
-            return new Check(true, "header-conversations-button");
-        }
-
-        if (hasVisible(page.locator("a[href*='/inbox']"))) {
-            return new Check(true, "visible /inbox link");
-        }
-
-        if (hasVisible(page.locator("[data-testid='header-login-button']"))) {
-            return new Check(false, "Vinted login control is visible at job end");
+        String signal = VintedAuthenticationEvidence.signal(page);
+        if (signal != null) {
+            return new Check(true, signal);
         }
 
         return new Check(
                 false,
                 "no strong authenticated Vinted signal is visible at job end; url=" + url
         );
-    }
-
-    private boolean hasVisible(Locator locator) {
-        try {
-            int count = Math.min(locator.count(), 20);
-            for (int index = 0; index < count; index++) {
-                if (locator.nth(index).isVisible()) {
-                    return true;
-                }
-            }
-        } catch (PlaywrightException ignored) {
-            return false;
-        }
-
-        return false;
     }
 
     public record Check(boolean healthy, String reason) {

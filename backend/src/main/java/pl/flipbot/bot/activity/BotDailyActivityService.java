@@ -7,13 +7,11 @@ import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
 import pl.flipbot.negotiation.guard.RealActionType;
 import pl.flipbot.negotiation.quota.DailyOfferQuotaService;
 import pl.flipbot.negotiation.quota.dto.DailyOfferQuotaResponse;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
@@ -27,25 +25,15 @@ public class BotDailyActivityService {
             ZoneId.of("Europe/Warsaw");
 
     private final ListingRepository listingRepository;
-    private final RealActionAuditRepository realActionAuditRepository;
     private final DailyOfferQuotaService dailyOfferQuotaService;
 
     public BotDailyActivityResponse getToday(
             Long botId
     ) {
-        LocalDate today = LocalDate.now(ACTIVITY_ZONE);
-        LocalDateTime dayStart = today.atStartOfDay();
-        LocalDateTime nextDayStart = today.plusDays(1).atStartOfDay();
-
-        DailyOfferQuotaResponse quota =
-                dailyOfferQuotaService.getQuota(botId);
-
-        List<RealActionAudit> audits = realActionAuditRepository
-                .findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-                        botId,
-                        dayStart,
-                        nextDayStart
-                );
+        DailyOfferQuotaService.UsageSnapshot snapshot = dailyOfferQuotaService.getUsageSnapshot(botId);
+        LocalDate today = snapshot.usageDate();
+        DailyOfferQuotaResponse quota = snapshot.quota();
+        List<RealActionAudit> audits = snapshot.audits();
 
         List<RealActionAudit> confirmedAudits = audits.stream()
                 .filter(audit -> audit.getOutcome() == RealActionAuditOutcome.CONFIRMED)

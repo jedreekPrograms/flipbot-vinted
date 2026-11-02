@@ -67,9 +67,6 @@ final class AdTechRequestPolicy {
         }
     }
 
-    static Set<String> blockedHostSuffixes() {
-        return BLOCKED_HOST_SUFFIXES;
-    }
 
     static boolean enabled() {
         String configured = System.getenv(BLOCK_AD_TECH_ENV);

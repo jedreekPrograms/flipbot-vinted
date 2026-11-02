@@ -6,6 +6,8 @@ import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.session.VintedAuthenticationRequiredException;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.util.Locale;
 import java.util.function.LongSupplier;
@@ -64,9 +66,6 @@ public class MarketplaceNavigator {
         waitForCatalogShell();
     }
 
-    public void goToInbox() {
-        navigate(MarketplaceUrls.INBOX);
-    }
 
     /**
      * Opens an arbitrary trusted Vinted URL with the same bounded retry and
@@ -111,6 +110,11 @@ public class MarketplaceNavigator {
 
                 waitForSessionRefreshResolution(page, url);
 
+                if (MarketplaceUrls.isInboxUrl(url)) {
+                    VintedAuthenticationRequiredException.throwIfRedirected(
+                            page, "opening a protected inbox/conversation");
+                }
+
                 if (!MarketplaceUrls.isVintedUrl(page.url())) {
                     throw new IllegalStateException(
                             "Navigation to Vinted ended on an unexpected URL after session refresh: "
@@ -149,7 +153,7 @@ public class MarketplaceNavigator {
                         delayMs,
                         url,
                         safePageUrl(page),
-                        friendlyMessage(exception)
+                        ErrorMessages.firstLine(exception, "unknown error")
                 );
 
                 page.waitForTimeout(delayMs);
@@ -301,7 +305,7 @@ public class MarketplaceNavigator {
             Page page,
             Throwable throwable
     ) {
-        String message = friendlyMessage(throwable)
+        String message = ErrorMessages.firstLine(throwable, "unknown error")
                 .toLowerCase(Locale.ROOT);
 
         if (message.contains("err_network_changed")
@@ -369,20 +373,5 @@ public class MarketplaceNavigator {
         }
     }
 
-    private String friendlyMessage(Throwable throwable) {
-        if (throwable == null) {
-            return "unknown error";
-        }
 
-        String message = throwable.getMessage();
-
-        if (message == null || message.isBlank()) {
-            return throwable.getClass().getSimpleName();
-        }
-
-        return message.lines()
-                .findFirst()
-                .orElse(message)
-                .trim();
-    }
 }

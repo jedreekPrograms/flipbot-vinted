@@ -1,13 +1,12 @@
 package pl.flipbot.playwright.session;
 
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -16,6 +15,21 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class SessionManagerTest {
+
+    @Test
+    public void identicalCheckpointDoesNotReplaceTheLastDistinctBackup() throws Exception {
+        Path sessions = temporaryFolder.newFolder("same-state").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        String state = "{\"cookies\":[],\"origins\":[]}";
+        Files.writeString(manager.sessionFile(3L), state);
+        Path backup = Files.createDirectories(sessions.resolve("backups")).resolve("bot-3-last-known-good.json");
+        Files.writeString(backup, "previous-distinct-checkpoint");
+        Path staged = sessions.resolve("identical.tmp");
+        Files.writeString(staged, state);
+        manager.installStagedSession(3L, staged);
+        assertEquals(state, Files.readString(manager.sessionFile(3L)));
+        assertEquals("previous-distinct-checkpoint", Files.readString(backup));
+    }
 
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -218,59 +232,6 @@ public class SessionManagerTest {
         assertArrayEquals(original, Files.readAllBytes(activeSession));
     }
 
-    @Test
-    public void invalidatingSessionBacksItUpWithoutRemovingActiveStorage()
-            throws Exception {
-        Path sessions = temporaryFolder.newFolder("sessions").toPath();
-        SessionManager manager = new SessionManager(sessions);
-        Path activeSession = manager.sessionFile(3L);
-        byte[] original = "{\"cookies\":[{\"name\":\"session\"}]}"
-                .getBytes(StandardCharsets.UTF_8);
-
-        Files.write(activeSession, original);
-
-        manager.invalidateSession(3L);
-
-        assertTrue(Files.exists(activeSession));
-        assertArrayEquals(original, Files.readAllBytes(activeSession));
-
-        Path backup = sessions.resolve("backups/bot-3-recovery.json");
-        assertTrue(Files.exists(backup));
-        assertArrayEquals(original, Files.readAllBytes(backup));
-    }
-
-    @Test
-    public void repeatedRecoveryBackupsRotateInsteadOfAccumulating()
-            throws Exception {
-        Path sessions = temporaryFolder.newFolder("repeated-backups").toPath();
-        SessionManager manager = new SessionManager(sessions);
-        Path activeSession = manager.sessionFile(3L);
-        byte[] original = "{\"cookies\":[{\"value\":\"still-valid\"}]}"
-                .getBytes(StandardCharsets.UTF_8);
-
-        Files.write(activeSession, original);
-
-        manager.invalidateSession(3L);
-        manager.invalidateSession(3L);
-
-        assertTrue(Files.exists(activeSession));
-        assertArrayEquals(original, Files.readAllBytes(activeSession));
-
-        try (var stream = Files.list(sessions.resolve("backups"))) {
-            assertEquals(1L, stream.count());
-        }
-    }
-
-    @Test
-    public void invalidatingMissingSessionDoesNotCreateBackupDirectory()
-            throws Exception {
-        Path sessions = temporaryFolder.newFolder("missing-session").toPath();
-        SessionManager manager = new SessionManager(sessions);
-
-        manager.invalidateSession(3L);
-
-        assertFalse(Files.exists(sessions.resolve("backups")));
-    }
 
     @Test(expected = IllegalArgumentException.class)
     public void sessionFileRejectsNonPositiveBotId() {
@@ -279,6 +240,65 @@ public class SessionManagerTest {
         );
 
         manager.sessionFile(0L);
+    }
+
+    @Test
+    public void missingAuthTokensCannotOverwriteActiveSessionOrItsLastKnownGoodBackup() throws Exception {
+        String original = """
+                {"cookies":[
+                  {"name":"access_token_web","value":"old-access-fixture","domain":".vinted.pl","path":"/"},
+                  {"name":"refresh_token_web","value":"old-refresh-fixture","domain":".www.vinted.pl","path":"/"}
+                ],"origins":[]}
+                """;
+        List<String> losses = List.of(
+                "{\"cookies\":[{\"name\":\"analytics\",\"value\":\"still-present\"}],\"origins\":[]}",
+                "{\"cookies\":[{\"name\":\"access_token_web\",\"value\":\"old-access-fixture\",\"domain\":\".vinted.pl\"}],\"origins\":[]}",
+                "{\"cookies\":[{\"name\":\"refresh_token_web\",\"value\":\"old-refresh-fixture\",\"domain\":\".www.vinted.pl\"}],\"origins\":[]}"
+        );
+        for (int i = 0; i < losses.size(); i++) {
+            Path sessions = temporaryFolder.newFolder("auth-token-loss-" + i).toPath();
+            SessionManager manager = new SessionManager(sessions);
+            Path active = manager.sessionFile(11L);
+            Path backup = Files.createDirectories(sessions.resolve("backups")).resolve("bot-11-last-known-good.json");
+            Path staged = sessions.resolve("staged.json.tmp");
+            Files.writeString(active, original);
+            Files.writeString(backup, "previous-backup-fixture");
+            Files.writeString(staged, losses.get(i));
+            try {
+                manager.installStagedSession(11L, staged);
+                fail("Lost Vinted auth token should not replace the checkpoint");
+            } catch (IllegalStateException expected) {
+                assertTrue(expected.getMessage().contains("lost established Vinted"));
+                assertFalse(expected.getMessage().contains("old-access-fixture"));
+                assertFalse(expected.getMessage().contains("old-refresh-fixture"));
+            }
+            assertEquals(original, Files.readString(active));
+            assertEquals("previous-backup-fixture", Files.readString(backup));
+        }
+    }
+
+    @Test
+    public void rotatingBothTokensAndMigratingTheAccessDomainCanReplaceTheCheckpoint() throws Exception {
+        Path sessions = temporaryFolder.newFolder("auth-token-rotation").toPath();
+        SessionManager manager = new SessionManager(sessions);
+        String original = """
+                {"cookies":[
+                  {"name":"access_token_web","value":"old-access-fixture","domain":".www.vinted.pl","path":"/"},
+                  {"name":"refresh_token_web","value":"old-refresh-fixture","domain":".www.vinted.pl","path":"/"}
+                ],"origins":[]}
+                """;
+        String rotated = """
+                {"cookies":[
+                  {"name":"access_token_web","value":"new-access-fixture","domain":".vinted.pl","path":"/"},
+                  {"name":"refresh_token_web","value":"new-refresh-fixture","domain":".www.vinted.pl","path":"/"}
+                ],"origins":[]}
+                """;
+        Files.writeString(manager.sessionFile(11L), original);
+        Path staged = sessions.resolve("rotated.json.tmp");
+        Files.writeString(staged, rotated);
+        manager.installStagedSession(11L, staged);
+        assertEquals(rotated, Files.readString(manager.sessionFile(11L)));
+        assertEquals(original, Files.readString(sessions.resolve("backups/bot-11-last-known-good.json")));
     }
 
     private Path createPlaywrightModule(Path repositoryRoot)

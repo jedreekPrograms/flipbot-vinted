@@ -1,5 +1,7 @@
 package pl.flipbot.playwright.browser;
 
+import pl.flipbot.playwright.verification.CookieConsentClickBudget;
+
 /**
  * Keeps Vinted's OneTrust consent UI from covering catalog controls.
  *
@@ -14,6 +16,11 @@ final class OneTrustConsentGuard {
 
     private static final String SCRIPT = """
             (() => {
+                // UI controls belong to the main Vinted document, never ad or challenge frames.
+                if (window.top !== window
+                        || !/(^|\\.)vinted\\.pl$/.test(location.hostname)) {
+                    return;
+                }
                 const ACCEPT_CONTROL_IDS = [
                     "onetrust-accept-btn-handler",
                     "accept-recommended-btn-handler"
@@ -57,6 +64,10 @@ final class OneTrustConsentGuard {
                         && rect.height > 0;
                 };
 
+                // A failed consent save may leave/recreate a visible control.
+                // Bound actions across ALL controls and the Java handler, so
+                // response/DOM changes cannot cause an endless click storm.
+                const reserveClick = __FLIPBOT_CONSENT_RESERVATION__;
                 const clickIfUsable = (element) => {
                     if (!(element instanceof HTMLElement)
                             || !isVisible(element)
@@ -64,6 +75,9 @@ final class OneTrustConsentGuard {
                         return false;
                     }
 
+                    if (!reserveClick()) {
+                        return true;
+                    }
                     element.click();
                     return true;
                 };
@@ -92,8 +106,7 @@ final class OneTrustConsentGuard {
                         );
 
                         if (ACCEPT_ALL_LABELS.has(label)) {
-                            button.click();
-                            return true;
+                            return clickIfUsable(button);
                         }
                     }
 
@@ -140,10 +153,10 @@ final class OneTrustConsentGuard {
                     }
 
                     scheduled = true;
-                    queueMicrotask(() => {
+                    setTimeout(() => {
                         scheduled = false;
                         stabilizeOneTrust();
-                    });
+                    }, 100);
                 };
 
                 scheduleStabilization();
@@ -173,7 +186,7 @@ final class OneTrustConsentGuard {
                     }
                 }, 500);
             })();
-            """;
+            """.replace("__FLIPBOT_CONSENT_RESERVATION__", CookieConsentClickBudget.script());
 
     private OneTrustConsentGuard() {
     }

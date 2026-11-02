@@ -1,15 +1,14 @@
 package pl.flipbot.marketstats;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pl.flipbot.dictionary.DictionaryModelRepository;
 import pl.flipbot.marketstats.dto.MarketStatsHealthResponse;
-
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.Comparator;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -133,19 +132,6 @@ public class MarketStatsHealthService {
                 System.getenv("FLIPBOT_MARKET_STATS_REFRESH_MINUTES"),
                 DEFAULT_REFRESH_MINUTES
         );
-
-        String legacyHours = System.getenv(
-                "FLIPBOT_MARKET_STATS_INTERVAL_HOURS"
-        );
-        if ((System.getenv("FLIPBOT_MARKET_STATS_REFRESH_MINUTES") == null
-                || System.getenv("FLIPBOT_MARKET_STATS_REFRESH_MINUTES").isBlank())
-                && legacyHours != null
-                && !legacyHours.isBlank()) {
-            refreshMinutes = readPositiveLong(
-                    legacyHours,
-                    24L
-            ) * 60L;
-        }
 
         long refreshBased = Math.max(45L, refreshMinutes * 3L);
         long modelCycleBased = Math.min(

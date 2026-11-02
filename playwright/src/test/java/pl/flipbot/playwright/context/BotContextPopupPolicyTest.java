@@ -22,12 +22,11 @@ public class BotContextPopupPolicyTest {
     }
 
     @Test
-    public void anonymousObserverUiScriptAcceptsOneTrustAndNormalizesModelRows() {
+    public void anonymousObserverUiScriptNormalizesModelRowsWithoutASecondConsentClicker() {
         String script = BotContext.anonymousObserverUiStabilityScript();
 
-        assertTrue(script.contains("#onetrust-accept-btn-handler"));
-        assertTrue(script.contains("zgoda na wszystkie"));
-        assertTrue(script.contains("accept all"));
+        assertFalse(script.contains("#onetrust-accept-btn-handler"));
+        assertFalse(script.contains(".click("));
         assertTrue(script.contains("MutationObserver"));
         assertTrue(script.contains("selectable-item-brand_collection-"));
         assertTrue(script.contains("ids.size === 1 && ids.has(collectionId)"));

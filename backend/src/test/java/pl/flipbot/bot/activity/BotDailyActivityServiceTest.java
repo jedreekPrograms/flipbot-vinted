@@ -6,17 +6,14 @@ import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.negotiation.audit.RealActionAudit;
 import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
 import pl.flipbot.negotiation.guard.RealActionType;
 import pl.flipbot.negotiation.quota.DailyOfferQuotaService;
 import pl.flipbot.negotiation.quota.dto.DailyOfferQuotaResponse;
 
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -25,35 +22,25 @@ class BotDailyActivityServiceTest {
     @Test
     void splitsTodayNextStepsBetweenNewAndOlderNegotiations() {
         ListingRepository listingRepository = mock(ListingRepository.class);
-        RealActionAuditRepository auditRepository = mock(RealActionAuditRepository.class);
         DailyOfferQuotaService quotaService = mock(DailyOfferQuotaService.class);
 
-        when(quotaService.getQuota(4L)).thenReturn(
-                new DailyOfferQuotaResponse(25, 5, 20)
-        );
-        when(listingRepository.countByBotIdAndStatus(
-                4L,
-                ListingStatus.NEGOTIATING
-        )).thenReturn(3L);
-        when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
-                eq(4L),
-                any(LocalDateTime.class),
-                any(LocalDateTime.class)
-        )).thenReturn(List.of(
-                audit(101L, RealActionType.FIRST_OFFER, RealActionAuditOutcome.CONFIRMED),
-                audit(101L, RealActionType.NEXT_STEP, RealActionAuditOutcome.CONFIRMED),
-                audit(202L, RealActionType.NEXT_STEP, RealActionAuditOutcome.CONFIRMED),
-                audit(303L, RealActionType.NEXT_STEP, RealActionAuditOutcome.AMBIGUOUS)
-        ));
+        LocalDate snapshotDate = LocalDate.of(2026, 10, 16);
+        when(quotaService.getUsageSnapshot(4L)).thenReturn(new DailyOfferQuotaService.UsageSnapshot(
+                snapshotDate, new DailyOfferQuotaResponse(25, 5, 20), List.of(
+                        audit(101L, RealActionType.FIRST_OFFER, RealActionAuditOutcome.CONFIRMED),
+                        audit(101L, RealActionType.NEXT_STEP, RealActionAuditOutcome.CONFIRMED),
+                        audit(202L, RealActionType.NEXT_STEP, RealActionAuditOutcome.CONFIRMED),
+                        audit(303L, RealActionType.NEXT_STEP, RealActionAuditOutcome.AMBIGUOUS))));
+        when(listingRepository.countByBotIdAndStatus(4L, ListingStatus.NEGOTIATING)).thenReturn(3L);
 
         BotDailyActivityService service = new BotDailyActivityService(
                 listingRepository,
-                auditRepository,
                 quotaService
         );
 
         BotDailyActivityResponse response = service.getToday(4L);
 
+        assertEquals(snapshotDate, response.date());
         assertEquals("Europe/Warsaw", response.timeZone());
         assertEquals(25, response.dailyLimit());
         assertEquals(5, response.dailyLimitUsed());

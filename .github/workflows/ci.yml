@@ -35,8 +35,16 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Compare UI and styles with the previous public release
+        run: |
+          git fetch --no-tags --depth=1 origin 184d99a80e4b8b75e86483e935ec0de206394a23
+          npm run test:refactor
+
       - name: Build
         run: npm run build
+
+      - name: Check panel build cache and manifest
+        run: node --test ../scripts/test/build-panel.test.mjs
 
   mobile:
     name: Mobile
@@ -59,6 +67,22 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Set up Python for APK source preparation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check repeatable APK preparation
+        run: python -m unittest discover -s scripts/test -v
+
+      - name: Typecheck the same prepared source used by the APK build
+        run: |
+          python scripts/patch_mobile_ui.py
+          python scripts/patch_android_system_bars.py
+          python scripts/patch_mobile_ui.py
+          python scripts/patch_android_system_bars.py
+          npm run typecheck
 
   backend:
     name: Backend
@@ -86,12 +110,8 @@ jobs:
       SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/flipbot
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
-      # Historical Flyway migrations start from an already-existing Hibernate
-      # schema, so a clean CI database cannot replay V1 safely. For the context
-      # test we let Hibernate build an isolated schema. A true Flyway baseline
-      # should be introduced separately before switching production to validate.
-      SPRING_FLYWAY_ENABLED: "false"
-      SPRING_JPA_HIBERNATE_DDL_AUTO: create-drop
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
 
     steps:
       - name: Checkout
@@ -104,13 +124,31 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Test backend
+      - name: Set up Node for the bundled panel
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Test and package backend with its matching panel
         shell: bash
         run: |
           # The converter requires a Base64-encoded 32-byte AES key. Generate a
           # deterministic non-secret value only for this disposable CI process.
           export FLIPBOT_ENCRYPTION_KEY="$(printf '00000000000000000000000000000000' | base64 -w0)"
-          bash ./mvnw -B test
+          bash ./mvnw -B verify
+
+      - name: Verify the actual packaged panel
+        run: python ../scripts/verify_backend_package.py
+
+      - name: Save the verified backend and panel from this commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: flipbot-backend-with-panel
+          path: backend/target/backend-*.jar
+          if-no-files-found: error
+          retention-days: 7
 
   playwright-unit:
     name: Playwright unit tests
@@ -132,3 +170,50 @@ jobs:
 
       - name: Test Playwright module
         run: mvn -B test
+
+      - name: Test injected UI guard scheduling
+        run: node src/test/js/ui-guard-scheduling.cjs
+
+  playwright-browser:
+    name: Playwright browser (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: playwright
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Compile local browser fixtures
+        run: mvn -B test-compile
+
+      - name: Install the matching browser
+        run: mvn -B "-Dexec.mainClass=com.microsoft.playwright.CLI" "-Dexec.args=install --with-deps chromium --no-remove" exec:java
+
+      - name: Check browser, login, consent, filters and session handling on local fixtures
+        run: mvn -B "-Dexec.mainClass=pl.flipbot.playwright.BrowserCompatibilitySmoke" "-Dexec.classpathScope=test" exec:java
+
+      - name: Parse the private-core bootstrap on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path (Get-Location) "bootstrap-private-core.ps1"),
+            [ref]$tokens, [ref]$parseErrors
+          ) | Out-Null
+          if ($parseErrors.Count -gt 0) { throw ($parseErrors | Out-String) }

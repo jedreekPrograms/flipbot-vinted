@@ -9,7 +9,6 @@ import pl.flipbot.playwright.scanner.model.Listing;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 

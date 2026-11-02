@@ -1,21 +1,15 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:17
     container_name: flipbot-postgres
-
     environment:
-      POSTGRES_DB: flipbot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-
+      POSTGRES_DB: ${FLIPBOT_DB_NAME:-flipbot_pr74}
+      POSTGRES_USER: ${FLIPBOT_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${FLIPBOT_DB_PASSWORD:-postgres}
     ports:
-      - "5433:5432"
-
+      - "${FLIPBOT_DB_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
     restart: unless-stopped
 
 volumes:

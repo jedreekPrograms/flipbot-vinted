@@ -1,12 +1,11 @@
 package pl.flipbot.playwright.api.listing;
 
-import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
-import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
-import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
-
 import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Objects;
+import pl.flipbot.playwright.api.listing.dto.DiscoverListingsRequestDto;
+import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
+import pl.flipbot.playwright.api.listing.dto.NegotiationCapacityResponseDto;
 
 /**
  * Product-scoped client. NULL targetId means the original product; otherwise
@@ -16,8 +15,10 @@ import java.util.Objects;
 public class TargetBoundListingClient extends ListingClient {
 
     private final Long additionalTargetId;
+    private final ListingClient jobClient;
 
-    public TargetBoundListingClient(Long additionalTargetId) {
+    public TargetBoundListingClient(ListingClient jobClient, Long additionalTargetId) {
+        this.jobClient = jobClient;
         this.additionalTargetId = additionalTargetId;
     }
 
@@ -29,14 +30,13 @@ public class TargetBoundListingClient extends ListingClient {
         return super.discoverListings(botId, additionalTargetId, request);
     }
 
-    @Override
     public List<ListingResponseDto> getDiscoveredListings(Long botId) {
         return super.getDiscoveredListings(botId, additionalTargetId);
     }
 
     @Override
     public List<ListingResponseDto> getNegotiatingListings(Long botId) {
-        return super.getNegotiatingListings(botId)
+        return jobClient.getNegotiatingListings(botId)
                 .stream()
                 .filter(listing -> Objects.equals(
                         listing.additionalTargetId(),
@@ -49,7 +49,7 @@ public class TargetBoundListingClient extends ListingClient {
     public List<ListingResponseDto> getNegotiationRecoveryCandidates(
             Long botId
     ) {
-        return super.getNegotiationRecoveryCandidates(botId)
+        return jobClient.getNegotiationRecoveryCandidates(botId)
                 .stream()
                 .filter(listing -> Objects.equals(
                         listing.additionalTargetId(),

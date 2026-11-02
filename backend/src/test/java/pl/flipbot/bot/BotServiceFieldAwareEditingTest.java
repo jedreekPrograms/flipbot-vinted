@@ -289,21 +289,17 @@ class BotServiceFieldAwareEditingTest {
                 BOT_ID,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of(actionRequired));
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.NEGOTIATING
-                )).thenReturn(List.of(negotiating));
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.ACTION_REQUIRED
-                )).thenReturn(List.of(actionRequired));
 
         var capabilities = service.getEditCapabilities(BOT_ID);
 
         assertTrue(capabilities.isHasActiveNegotiations());
         assertTrue(capabilities.isHasMainProductActiveNegotiations());
+        verify(listingRepository).findByBotIdAndStatusOrderByIdAsc(BOT_ID, ListingStatus.NEGOTIATING);
+        verify(listingRepository).findByBotIdAndStatusOrderByIdAsc(BOT_ID, ListingStatus.ACTION_REQUIRED);
+        verify(listingRepository, never()).findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                BOT_ID, ListingStatus.NEGOTIATING);
+        verify(listingRepository, never()).findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
+                BOT_ID, ListingStatus.ACTION_REQUIRED);
         assertEquals(
                 0,
                 new BigDecimal("900.00").compareTo(
@@ -418,16 +414,6 @@ class BotServiceFieldAwareEditingTest {
                 BOT_ID,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of());
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.NEGOTIATING
-                )).thenReturn(List.of(active));
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.ACTION_REQUIRED
-                )).thenReturn(List.of());
     }
 
     private void additionalProductNegotiation(String currentPrice) {
@@ -442,16 +428,6 @@ class BotServiceFieldAwareEditingTest {
                 BOT_ID,
                 ListingStatus.ACTION_REQUIRED
         )).thenReturn(List.of());
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.NEGOTIATING
-                )).thenReturn(List.of());
-        when(listingRepository
-                .findByBotIdAndStatusAndAdditionalTargetIsNullOrderByIdAsc(
-                        BOT_ID,
-                        ListingStatus.ACTION_REQUIRED
-                )).thenReturn(List.of());
     }
 
     private BotAdditionalTarget additionalTarget(Long id) {

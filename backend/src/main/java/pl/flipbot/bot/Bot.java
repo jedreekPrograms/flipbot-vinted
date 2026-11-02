@@ -45,4 +45,5 @@ public class Bot {
     @OneToMany(mappedBy = "bot", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     private List<Listing> listings = new ArrayList<>();
+    //
 }

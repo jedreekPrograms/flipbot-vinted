@@ -210,8 +210,5 @@ public final class VintedItemIdentityReader {
             return !model.isBlank();
         }
 
-        public boolean hasStructuredBrand() {
-            return !brand.isBlank();
-        }
     }
 }

@@ -1,7 +1,7 @@
+import { getErrorMessage } from "../shared/errorMessage";
 import {
     type FormEvent,
     useCallback,
-    useEffect,
     useState,
 } from "react";
 
@@ -9,19 +9,16 @@ import {
     createBrand,
     createCategory,
     createModel,
-    getBrands,
-    getCategories,
-    getModelsByBrand,
 } from "../api/dictionariesApi";
+
+import { keepDictionarySelection, useDictionaryCatalog } from "../features/dictionaries/useDictionaryCatalog";
 
 import AppSelect, {
     type AppSelectOption,
 } from "../components/AppSelect";
 
 import type {
-    DictionaryBrand,
     DictionaryCategory,
-    DictionaryModel,
 } from "../types/dictionaries";
 
 import type {
@@ -29,99 +26,22 @@ import type {
 } from "../types/bots";
 
 function DictionariesPage() {
-    const [brands, setBrands] = useState<DictionaryBrand[]>([]);
-    const [categories, setCategories] = useState<DictionaryCategory[]>([]);
-    const [models, setModels] = useState<DictionaryModel[]>([]);
-
     const [brandName, setBrandName] = useState("");
     const [categoryPathInput, setCategoryPathInput] = useState("");
-    const [selectedBrandId, setSelectedBrandId] = useState("");
     const [selectedModelCategoryId, setSelectedModelCategoryId] = useState("");
     const [modelName, setModelName] = useState("");
     const [modelTargetMode, setModelTargetMode] = useState<TargetMode>("VINTED_MODEL");
 
-    const [isLoading, setIsLoading] = useState(true);
-    const [areModelsLoading, setAreModelsLoading] = useState(false);
     const [submitting, setSubmitting] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-    const loadBaseData = useCallback(async () => {
-        setIsLoading(true);
-        setErrorMessage(null);
-
-        try {
-            const [loadedBrands, loadedCategories] = await Promise.all([
-                getBrands(),
-                getCategories(),
-            ]);
-
-            const sortedBrands = [...loadedBrands].sort((left, right) =>
-                left.name.localeCompare(right.name, "pl"),
-            );
-            const sortedCategories = [...loadedCategories].sort((left, right) =>
-                left.path.localeCompare(right.path, "pl"),
-            );
-
-            setBrands(sortedBrands);
-            setCategories(sortedCategories);
-
-            setSelectedBrandId(current => {
-                if (sortedBrands.some(brand => String(brand.id) === current)) {
-                    return current;
-                }
-
-                return sortedBrands.length > 0
-                    ? String(sortedBrands[0].id)
-                    : "";
-            });
-
-            setSelectedModelCategoryId(current => {
-                if (sortedCategories.some(category => String(category.id) === current)) {
-                    return current;
-                }
-
-                return sortedCategories.length > 0
-                    ? String(sortedCategories[0].id)
-                    : "";
-            });
-        } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać słowników."));
-        } finally {
-            setIsLoading(false);
-        }
+    const selectCategory = useCallback((loaded: DictionaryCategory[]) => {
+        setSelectedModelCategoryId(current => keepDictionarySelection(loaded, current));
     }, []);
-
-    const loadModels = useCallback(async (brandId: number) => {
-        setAreModelsLoading(true);
-
-        try {
-            const loadedModels = await getModelsByBrand(brandId);
-            setModels(
-                [...loadedModels].sort((left, right) =>
-                    left.name.localeCompare(right.name, "pl"),
-                ),
-            );
-        } catch (error) {
-            setModels([]);
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać modeli."));
-        } finally {
-            setAreModelsLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        void loadBaseData();
-    }, [loadBaseData]);
-
-    useEffect(() => {
-        if (selectedBrandId.length === 0) {
-            setModels([]);
-            return;
-        }
-
-        void loadModels(Number(selectedBrandId));
-    }, [selectedBrandId, loadModels]);
+    const {
+        brands, categories, models, selectedBrandId, setSelectedBrandId,
+        isLoading, isModelsLoading: areModelsLoading, errorMessage, setErrorMessage, loadBaseData, loadModels,
+    } = useDictionaryCatalog(selectCategory);
 
     function clearMessages() {
         setErrorMessage(null);
@@ -532,12 +452,6 @@ function targetModeLabel(targetMode: TargetMode): string {
 
 function normalizeText(value: string): string {
     return value.trim().replace(/\s+/g, " ");
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-    return error instanceof Error
-        ? error.message
-        : fallback;
 }
 
 export default DictionariesPage;

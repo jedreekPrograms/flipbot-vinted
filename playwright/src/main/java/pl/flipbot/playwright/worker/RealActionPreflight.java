@@ -2,12 +2,11 @@ package pl.flipbot.playwright.worker;
 
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
-import pl.flipbot.playwright.api.listing.TargetBoundListingClient;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
-import pl.flipbot.playwright.model.BotAdditionalTargetDto;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.model.NegotiationStepDto;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -30,17 +29,16 @@ public class RealActionPreflight {
     ) {
         List<String> failures = new ArrayList<>();
         List<String> notes = new ArrayList<>();
-        boolean capacityBlocked = false;
 
         if (bot == null || bot.getId() == null || bot.getId() <= 0) {
             failures.add("bot id is missing or invalid");
-            return finish(bot, jobType, failures, notes, false);
+            return finish(bot, jobType, failures, notes);
         }
 
         BotConfigurationDto main = bot.getConfiguration();
         if (main == null) {
             failures.add("bot configuration is missing");
-            return finish(bot, jobType, failures, notes, false);
+            return finish(bot, jobType, failures, notes);
         }
 
         validateMarketplace(main, "MAIN", failures);
@@ -62,15 +60,6 @@ public class RealActionPreflight {
                 );
             }
 
-            if (failures.isEmpty()) {
-                capacityBlocked = !hasAnyFirstOfferCapacity(
-                        bot.getId(),
-                        scanProducts,
-                        listingClient,
-                        failures,
-                        notes
-                );
-            }
         }
 
         if (nextStepRequested) {
@@ -82,24 +71,11 @@ public class RealActionPreflight {
             );
         }
 
-        /* Manual/full-run compatibility: when neither action type is explicitly
-           armed, keep validating the unchanged main product just as before. */
-        if (!firstOfferRequested && !nextStepRequested) {
-            validateCatalogProduct(
-                    new ProductConfiguration(null, main),
-                    false,
-                    false,
-                    failures,
-                    notes
-            );
-        }
-
         return finish(
                 bot,
                 jobType,
                 failures,
-                notes,
-                capacityBlocked
+                notes
         );
     }
 
@@ -137,45 +113,6 @@ public class RealActionPreflight {
         );
     }
 
-    private boolean hasAnyFirstOfferCapacity(
-            Long botId,
-            List<ProductConfiguration> products,
-            ListingClient mainClient,
-            List<String> failures,
-            List<String> notes
-    ) {
-        boolean anyCapacity = false;
-
-        for (ProductConfiguration product : products) {
-            try {
-                ListingClient client = product.id() == null
-                        ? mainClient
-                        : new TargetBoundListingClient(product.id());
-                int allowed = client.getAllowedNewNegotiations(botId);
-
-                notes.add(
-                        productLabel(product.id())
-                                + " backend allows "
-                                + allowed
-                                + " new negotiation(s)"
-                );
-                anyCapacity |= allowed > 0;
-            } catch (Exception exception) {
-                failures.add(
-                        productLabel(product.id())
-                                + " could not read negotiation capacity: "
-                                + friendlyMessage(exception)
-                );
-            }
-        }
-
-        if (!anyCapacity && failures.isEmpty()) {
-            notes.add(
-                    "all active products have backend capacity 0; no FIRST_OFFER submit is allowed in this catalog cycle"
-            );
-        }
-        return anyCapacity;
-    }
 
     private void validateNegotiatingProducts(
             BotDetailsDto bot,
@@ -189,7 +126,7 @@ public class RealActionPreflight {
         } catch (Exception exception) {
             failures.add(
                     "could not read active negotiations: "
-                            + friendlyMessage(exception)
+                            + ErrorMessages.firstLine(exception, "unknown error")
             );
             return;
         }
@@ -236,43 +173,16 @@ public class RealActionPreflight {
     }
 
     private List<ProductConfiguration> activeScanProducts(BotDetailsDto bot) {
-        List<ProductConfiguration> products = new ArrayList<>();
-        products.add(new ProductConfiguration(null, bot.getConfiguration()));
-
-        if (bot.getAdditionalTargets() == null) {
-            return products;
-        }
-
-        for (BotAdditionalTargetDto target : bot.getAdditionalTargets()) {
-            if (target == null
-                    || target.getAdditionalTargetId() == null
-                    || !Boolean.TRUE.equals(target.getActive())) {
-                continue;
-            }
-            products.add(new ProductConfiguration(
-                    target.getAdditionalTargetId(),
-                    target
-            ));
-        }
-        return products;
+        return pl.flipbot.playwright.model.BotProductExecutionPlan.activeCatalogTargets(bot).stream()
+                .map(target -> new ProductConfiguration(target.additionalTargetId(), target.configuration())).toList();
     }
-
-    private Map<Long, BotConfigurationDto> configurationsByTargetId(
-            BotDetailsDto bot
-    ) {
+    private Map<Long, BotConfigurationDto> configurationsByTargetId(BotDetailsDto bot) {
         Map<Long, BotConfigurationDto> result = new LinkedHashMap<>();
-        result.put(null, bot.getConfiguration());
-
-        if (bot.getAdditionalTargets() != null) {
-            for (BotAdditionalTargetDto target : bot.getAdditionalTargets()) {
-                if (target != null && target.getAdditionalTargetId() != null) {
-                    result.put(target.getAdditionalTargetId(), target);
-                }
-            }
+        for (var target : pl.flipbot.playwright.model.BotProductExecutionPlan.negotiationTargets(bot)) {
+            result.put(target.additionalTargetId(), target.configuration());
         }
         return result;
     }
-
     private void validateMarketplace(
             BotConfigurationDto configuration,
             String label,
@@ -419,7 +329,7 @@ public class RealActionPreflight {
             } else if (trim(firstStep.getMessage()).isBlank()) {
                 failures.add(
                         label
-                                + " step #1 message is blank; controlled first-offer test requires offer + message"
+                                + " step #1 message is blank; first offer requires a configured message"
                 );
             }
         }
@@ -438,12 +348,11 @@ public class RealActionPreflight {
             BotDetailsDto bot,
             ScheduledJobType jobType,
             List<String> failures,
-            List<String> notes,
-            boolean capacityBlocked
+            List<String> notes
     ) {
         Long botId = bot == null ? null : bot.getId();
         boolean hasHardFailure = !failures.isEmpty();
-        boolean ready = !hasHardFailure && !capacityBlocked;
+        boolean ready = !hasHardFailure;
 
         if (hasHardFailure) {
             log.error(
@@ -451,13 +360,6 @@ public class RealActionPreflight {
                     botId,
                     jobType,
                     String.join("; ", failures),
-                    String.join("; ", notes)
-            );
-        } else if (capacityBlocked) {
-            log.info(
-                    "[REAL ACTION PREFLIGHT] NO_CAPACITY for bot {} / {}. {} Catalog discovery may still continue; only real FIRST_OFFER submission is disabled for this cycle.",
-                    botId,
-                    jobType,
                     String.join("; ", notes)
             );
         } else {
@@ -471,7 +373,6 @@ public class RealActionPreflight {
 
         return new Result(
                 ready,
-                capacityBlocked && !hasHardFailure,
                 List.copyOf(failures),
                 List.copyOf(notes)
         );
@@ -485,18 +386,6 @@ public class RealActionPreflight {
         return value == null ? "" : value.trim();
     }
 
-    private String friendlyMessage(Throwable exception) {
-        if (exception == null) {
-            return "unknown error";
-        }
-
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
-        }
-
-        return message.lines().findFirst().orElse(message).trim();
-    }
 
     private record ProductConfiguration(
             Long id,
@@ -506,7 +395,6 @@ public class RealActionPreflight {
 
     public record Result(
             boolean ready,
-            boolean expectedCapacityBlock,
             List<String> failures,
             List<String> notes
     ) {

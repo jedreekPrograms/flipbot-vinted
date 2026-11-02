@@ -1,6 +1,7 @@
 package pl.flipbot.playwright.marketstats;
 
 import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -226,7 +227,7 @@ public class MarketStatsManager implements AutoCloseable {
                 return;
             }
 
-            if (containsTrafficBackoffMarker(exception)) {
+            if (MarketStatsTrafficBackoff.isRequired(exception)) {
                 int previousStartIndex = nextTargetStartIndex;
                 nextTargetStartIndex = apiClient == null
                         ? previousStartIndex
@@ -250,7 +251,7 @@ public class MarketStatsManager implements AutoCloseable {
                         FAILURE_RETRY_MINUTES,
                         previousStartIndex,
                         nextTargetStartIndex,
-                        friendlyMessage(exception)
+                        ErrorMessages.firstLine(exception, "unknown error")
                 );
                 log.debug(
                         "[MARKET STATS] Full traffic-backoff failure.",
@@ -276,7 +277,7 @@ public class MarketStatsManager implements AutoCloseable {
                     "[MARKET STATS] Collection failed. Normal bot scheduling is unaffected. Retry in {} minutes from target index {}. reason={}",
                     FAILURE_RETRY_MINUTES,
                     nextTargetStartIndex,
-                    friendlyMessage(exception)
+                    ErrorMessages.firstLine(exception, "unknown error")
             );
             log.debug(
                     "[MARKET STATS] Full collection failure.",
@@ -308,36 +309,5 @@ public class MarketStatsManager implements AutoCloseable {
         stop();
     }
 
-    private boolean containsTrafficBackoffMarker(Throwable throwable) {
-        Throwable current = throwable;
 
-        while (current != null) {
-            String message = current.getMessage();
-            if (message != null
-                    && message.contains(
-                    MarketListingPublishedAtResolver.TRAFFIC_BACKOFF_MARKER
-            )) {
-                return true;
-            }
-            current = current.getCause();
-        }
-
-        return false;
-    }
-
-    private String friendlyMessage(Throwable exception) {
-        if (exception == null
-                || exception.getMessage() == null
-                || exception.getMessage().isBlank()) {
-            return exception == null
-                    ? "unknown error"
-                    : exception.getClass().getSimpleName();
-        }
-
-        return exception.getMessage()
-                .lines()
-                .findFirst()
-                .orElse(exception.getMessage())
-                .trim();
-    }
 }

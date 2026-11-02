@@ -1,4 +1,6 @@
+import { getErrorMessage } from "../../../shared/errorMessage";
 import {
+    useCallback,
     useEffect,
     useState,
 } from "react";
@@ -24,7 +26,7 @@ function AdditionalProductsPanel() {
     const [isDeleting, setIsDeleting] = useState<number | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-    async function reload() {
+    const reload = useCallback(async () => {
         if (!Number.isInteger(botId) || botId <= 0) {
             setErrorMessage("Nieprawidłowy identyfikator bota.");
             setIsLoading(false);
@@ -43,11 +45,11 @@ function AdditionalProductsPanel() {
         } finally {
             setIsLoading(false);
         }
-    }
+    }, [botId]);
 
     useEffect(() => {
         void reload();
-    }, [botId]);
+    }, [reload]);
 
     async function handleDeactivate(target: BotAdditionalTargetDetails) {
         if (bot === null || bot.status.toUpperCase() !== "STOPPED") {
@@ -219,10 +221,6 @@ function formatPrice(value: number): string {
     return new Intl.NumberFormat("pl-PL", {
         maximumFractionDigits: 2,
     }).format(value);
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-    return error instanceof Error ? error.message : fallback;
 }
 
 export default AdditionalProductsPanel;

@@ -12,9 +12,12 @@ public class MobilePanelController {
 
     @GetMapping({
             "/runtime",
+            "/statistics",
             "/bots",
             "/bots/create",
             "/bots/{botId}/edit",
+            "/bots/{botId}/additional-products/new",
+            "/bots/{botId}/additional-products/{targetId}/edit",
             "/action-required",
             "/history",
             "/pricing",

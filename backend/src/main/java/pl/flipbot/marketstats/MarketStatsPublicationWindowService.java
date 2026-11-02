@@ -3,6 +3,7 @@ package pl.flipbot.marketstats;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.exception.InvalidRequestException;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -22,7 +23,7 @@ public class MarketStatsPublicationWindowService {
             Integer trackingGeneration
     ) {
         if (modelId == null || modelId <= 0) {
-            throw new IllegalArgumentException("Market model id must be positive.");
+            throw new InvalidRequestException("Market model id must be positive.");
         }
 
         MarketModelScanState state = scanStateRepository

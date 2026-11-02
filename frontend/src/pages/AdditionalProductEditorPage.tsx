@@ -1,3 +1,8 @@
+import ProductConfigurationFields from "../features/bots/form/ProductConfigurationFields";
+import { createInitialForm } from "../features/bots/form/formDefaults";
+import { resolveTargetMode, categoryPathsEqual, normalizedText } from "../features/bots/form/targetIdentity";
+import { getErrorMessage } from "../shared/errorMessage";
+import { mapNegotiationStepsToForm } from "../features/bots/form/mappers/mapNegotiationStepsToForm";
 import {
     type FormEvent,
     useEffect,
@@ -14,25 +19,16 @@ import {
     createAdditionalTarget,
     updateAdditionalTarget,
 } from "../api/additionalTargetsApi";
-import BotFiltersSection from "../features/bots/create/BotFiltersSection";
-import NegotiationStepsSection from "../features/bots/create/NegotiationStepsSection";
-import OfferStrategySection from "../features/bots/create/OfferStrategySection";
 import type {
-    CounterOfferRuleField,
     CreateBotFormValues,
-    NegotiationStepField,
-    NegotiationStepForm,
-    NegotiationStepPolicyField,
-} from "../features/bots/create/botForm";
-import { useBotDictionaries } from "../features/bots/create/hooks/useBotDictionaries";
-import { useCreateBotForm } from "../features/bots/create/hooks/useCreateBotForm";
-import { buildCreateBotRequest } from "../features/bots/create/mappers/buildCreateBotRequest";
-import { validateCreateBotForm } from "../features/bots/create/validation/validateCreateBotForm";
+} from "../features/bots/form/botForm";
+import { useBotDictionaries } from "../features/bots/form/hooks/useBotDictionaries";
+import { useBotProductForm } from "../features/bots/form/hooks/useBotProductForm";
+import { buildCreateBotRequest } from "../features/bots/form/mappers/buildCreateBotRequest";
+import { validateCreateBotForm } from "../features/bots/form/validation/validateCreateBotForm";
 import type {
     BotAdditionalTargetDetails,
     BotDetails,
-    BotNegotiationStep,
-    TargetMode,
     UpsertBotAdditionalTargetRequest,
 } from "../types/bots";
 
@@ -49,26 +45,12 @@ function AdditionalProductEditorPage() {
     const editing = targetIdParam !== undefined;
     const targetId = editing ? Number(targetIdParam) : null;
 
+    const controller = useBotProductForm();
     const {
         form,
-        setCategory,
-        setBrand,
-        setTargetMode,
         setModel,
-        setSearchQuery,
-        setMinPrice,
-        setMaxPrice,
-        setAutoRaiseOfferToVintedMinimum,
-        setMaxAutomaticOffer,
-        addNegotiationStep,
-        removeNegotiationStep,
-        updateNegotiationStep,
-        updateNegotiationStepPolicy,
-        addCounterOfferRule,
-        removeCounterOfferRule,
-        updateCounterOfferRule,
         replaceForm,
-    } = useCreateBotForm();
+    } = controller;
 
     const [bot, setBot] = useState<BotDetails | null>(null);
     const [editedTarget, setEditedTarget] =
@@ -79,6 +61,7 @@ function AdditionalProductEditorPage() {
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const dictionaries = useBotDictionaries(form.selectedBrandId);
     const {
         categories,
         brands,
@@ -87,8 +70,7 @@ function AdditionalProductEditorPage() {
         areModelsLoading,
         modelsBrandId,
         dictionaryErrorMessage,
-        clearDictionaryError,
-    } = useBotDictionaries(form.selectedBrandId);
+    } = dictionaries;
 
     const selectedCategory = categories.find(
         category => String(category.id) === form.selectedCategoryId,
@@ -258,7 +240,7 @@ function AdditionalProductEditorPage() {
             maxAutomaticOffer: bot.configuration.maxAutomaticOffer === null
                 ? ""
                 : String(bot.configuration.maxAutomaticOffer),
-            negotiationSteps: mapSteps(bot.configuration.negotiationSteps),
+            negotiationSteps: mapNegotiationStepsToForm(bot.configuration.negotiationSteps),
         });
         clearMessages();
     }
@@ -411,54 +393,9 @@ function AdditionalProductEditorPage() {
                     className="bot-form-fieldset"
                     disabled={!stopped || !ready || isSubmitting}
                 >
-                    <BotFiltersSection
-                        categories={categories}
-                        brands={brands}
-                        models={models}
-                        selectedCategoryId={form.selectedCategoryId}
-                        selectedBrandId={form.selectedBrandId}
-                        targetMode={form.targetMode}
-                        selectedModelId={form.selectedModelId}
-                        searchQuery={form.searchQuery}
-                        minPrice={form.minPrice}
-                        maxPrice={form.maxPrice}
-                        isLoadingDictionaries={isLoadingDictionaries}
-                        areModelsLoading={areModelsLoading}
-                        targetFieldsDisabled={
-                            editing
-                            && Boolean(editedTarget?.hasActiveNegotiations)
-                        }
-                        onCategoryChange={(value) => {
-                            setCategory(value);
-                            clearMessages();
-                        }}
-                        onBrandChange={(value) => {
-                            setBrand(value);
-                            clearMessages();
-                            clearDictionaryError();
-                        }}
-                        onTargetModeChange={(value: TargetMode) => {
-                            setTargetMode(value);
-                            clearMessages();
-                        }}
-                        onModelChange={(value) => {
-                            setModel(value);
-                            clearMessages();
-                        }}
-                        onSearchQueryChange={(value) => {
-                            setSearchQuery(value);
-                            clearMessages();
-                        }}
-                        onMinPriceChange={(value) => {
-                            setMinPrice(value);
-                            clearMessages();
-                        }}
-                        onMaxPriceChange={(value) => {
-                            setMaxPrice(value);
-                            clearMessages();
-                        }}
-                    />
-
+                    <ProductConfigurationFields controller={controller} dictionaries={dictionaries}
+                        onError={setErrorMessage}
+                        targetFieldsDisabled={editing && Boolean(editedTarget?.hasActiveNegotiations)}>
                     <article className="content-card">
                         <div className="bot-form-section-header">
                             <div>
@@ -474,81 +411,7 @@ function AdditionalProductEditorPage() {
                             </button>
                         </div>
                     </article>
-
-                    <OfferStrategySection
-                        autoRaiseOfferToVintedMinimum={
-                            form.autoRaiseOfferToVintedMinimum
-                        }
-                        maxAutomaticOffer={form.maxAutomaticOffer}
-                        firstConfiguredOffer={
-                            form.negotiationSteps[0]?.offerPrice ?? ""
-                        }
-                        onAutoRaiseChange={(value) => {
-                            setAutoRaiseOfferToVintedMinimum(value);
-                            clearMessages();
-                        }}
-                        onMaxAutomaticOfferChange={(value) => {
-                            setMaxAutomaticOffer(value);
-                            clearMessages();
-                        }}
-                    />
-
-                    <NegotiationStepsSection
-                        negotiationSteps={form.negotiationSteps}
-                        dailyNegotiationBudget={String(
-                            bot.configuration.dailyNegotiationBudget,
-                        )}
-                        onAddStep={() => {
-                            if (!addNegotiationStep()) {
-                                setErrorMessage("Nie możesz dodać więcej niż 25 kroków negocjacji.");
-                            } else {
-                                clearMessages();
-                            }
-                        }}
-                        onRemoveStep={(stepId) => {
-                            if (!removeNegotiationStep(stepId)) {
-                                setErrorMessage("Produkt musi mieć przynajmniej jeden krok negocjacji.");
-                            } else {
-                                clearMessages();
-                            }
-                        }}
-                        onUpdateStep={(
-                            stepId: number,
-                            field: NegotiationStepField,
-                            value: string,
-                        ) => {
-                            updateNegotiationStep(stepId, field, value);
-                            clearMessages();
-                        }}
-                        onUpdateStepPolicy={(
-                            stepId: number,
-                            field: NegotiationStepPolicyField,
-                            value: string,
-                        ) => {
-                            updateNegotiationStepPolicy(stepId, field, value);
-                            clearMessages();
-                        }}
-                        onAddCounterOfferRule={(stepId) => {
-                            if (!addCounterOfferRule(stepId)) {
-                                setErrorMessage("Jeden krok może mieć maksymalnie 25 progów procentowych.");
-                            } else {
-                                clearMessages();
-                            }
-                        }}
-                        onRemoveCounterOfferRule={(stepId, ruleId) => {
-                            removeCounterOfferRule(stepId, ruleId);
-                            clearMessages();
-                        }}
-                        onUpdateCounterOfferRule={(
-                            stepId: number,
-                            ruleId: number,
-                            field: CounterOfferRuleField,
-                            value: string,
-                        ) => {
-                            updateCounterOfferRule(stepId, ruleId, field, value);
-                            clearMessages();
-                        }}
-                    />
+                    </ProductConfigurationFields>
                 </fieldset>
 
                 <div className="bot-form-actions">
@@ -573,22 +436,8 @@ function AdditionalProductEditorPage() {
 }
 
 function newProductForm(bot: BotDetails): CreateBotFormValues {
-    return {
-        botName: bot.name,
-        email: bot.email,
-        password: "",
-        selectedCategoryId: "",
-        selectedBrandId: "",
-        targetMode: "VINTED_MODEL",
-        selectedModelId: "",
-        searchQuery: "",
-        minPrice: "",
-        maxPrice: "",
-        autoRaiseOfferToVintedMinimum: false,
-        maxAutomaticOffer: "",
-        dailyNegotiationBudget: String(bot.configuration.dailyNegotiationBudget),
-        negotiationSteps: [blankStep()],
-    };
+    return { ...createInitialForm(), botName: bot.name, email: bot.email,
+        dailyNegotiationBudget: String(bot.configuration.dailyNegotiationBudget) };
 }
 
 function existingProductForm(
@@ -615,93 +464,8 @@ function existingProductForm(
             ? ""
             : String(target.maxAutomaticOffer),
         dailyNegotiationBudget: String(bot.configuration.dailyNegotiationBudget),
-        negotiationSteps: mapSteps(target.negotiationSteps),
+        negotiationSteps: mapNegotiationStepsToForm(target.negotiationSteps),
     };
-}
-
-function mapSteps(steps: BotNegotiationStep[]): NegotiationStepForm[] {
-    return steps
-        .slice()
-        .sort((left, right) => left.stepNumber - right.stepNumber)
-        .map((step, index) => ({
-            id: index + 1,
-            offerPrice: String(step.offerPrice),
-            maxAcceptedCounterOffer: step.maxAcceptedCounterOffer === null
-                ? ""
-                : String(step.maxAcceptedCounterOffer),
-            message: step.message,
-            rejectionAction: step.rejectionAction ?? "NEXT_STEP_NOW",
-            rejectionWaitHours: step.rejectionWaitHours === null
-                ? ""
-                : String(step.rejectionWaitHours),
-            counterOfferDefaultAction:
-                step.counterOfferDefaultAction ?? "WAIT_BEFORE_NEXT_STEP",
-            counterOfferDefaultWaitHours:
-                step.counterOfferDefaultWaitHours === null
-                    ? ""
-                    : String(step.counterOfferDefaultWaitHours),
-            counterOfferRules: (step.counterOfferRules ?? []).map(
-                (rule, ruleIndex) => ({
-                    id: (index + 1) * 100 + ruleIndex + 1,
-                    minimumDiscountPercent: String(rule.minimumDiscountPercent),
-                    action: rule.action,
-                    waitHours: rule.waitHours === null
-                        ? ""
-                        : String(rule.waitHours),
-                }),
-            ),
-        }));
-}
-
-function blankStep(): NegotiationStepForm {
-    return {
-        id: 1,
-        offerPrice: "",
-        maxAcceptedCounterOffer: "",
-        message: "",
-        rejectionAction: "NEXT_STEP_NOW",
-        rejectionWaitHours: "",
-        counterOfferDefaultAction: "WAIT_BEFORE_NEXT_STEP",
-        counterOfferDefaultWaitHours: "6",
-        counterOfferRules: [
-            {
-                id: 1,
-                minimumDiscountPercent: "10",
-                action: "WAIT_BEFORE_NEXT_STEP",
-                waitHours: "2",
-            },
-            {
-                id: 2,
-                minimumDiscountPercent: "15",
-                action: "NEXT_STEP_NOW",
-                waitHours: "",
-            },
-        ],
-    };
-}
-
-function resolveTargetMode(target: BotAdditionalTargetDetails): TargetMode {
-    if (target.targetMode !== null) {
-        return target.targetMode;
-    }
-    return target.searchQuery !== null && target.searchQuery.trim().length > 0
-        ? "SEARCH_QUERY"
-        : "VINTED_MODEL";
-}
-
-function categoryPathsEqual(left: string[], right: string[]): boolean {
-    return left.length === right.length
-        && left.every((element, index) =>
-            normalizedText(element) === normalizedText(right[index] ?? ""),
-        );
-}
-
-function normalizedText(value: string): string {
-    return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-    return error instanceof Error ? error.message : fallback;
 }
 
 export default AdditionalProductEditorPage;

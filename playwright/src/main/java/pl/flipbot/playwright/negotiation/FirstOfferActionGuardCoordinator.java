@@ -6,6 +6,7 @@ import pl.flipbot.playwright.api.audit.dto.RealActionAuditRequestDto;
 import pl.flipbot.playwright.api.guard.RealActionGuardClient;
 import pl.flipbot.playwright.api.guard.dto.RealActionGuardResponseDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -105,7 +106,7 @@ public class FirstOfferActionGuardCoordinator {
                     botId,
                     listing.listingId(),
                     reason,
-                    friendlyMessage(exception)
+                    ErrorMessages.firstLine(exception, "Unknown error")
             );
 
             throw new IllegalStateException(
@@ -153,7 +154,7 @@ public class FirstOfferActionGuardCoordinator {
                     botId,
                     listing.listingId(),
                     requestId,
-                    friendlyMessage(exception)
+                    ErrorMessages.firstLine(exception, "Unknown error")
             );
             log.trace(
                     "[REAL ACTION AUDIT] Full confirmed FIRST_OFFER audit failure for listing {}.",
@@ -182,7 +183,7 @@ public class FirstOfferActionGuardCoordinator {
                             + "The stale guard is safe: backend listing state can confirm the action on a later acquire. Error: {}",
                     botId,
                     listing.listingId(),
-                    friendlyMessage(exception)
+                    ErrorMessages.firstLine(exception, "Unknown error")
             );
 
             log.trace(
@@ -193,14 +194,5 @@ public class FirstOfferActionGuardCoordinator {
         }
     }
 
-    private String friendlyMessage(Throwable exception) {
-        if (exception == null) {
-            return "Unknown error";
-        }
 
-        String message = exception.getMessage();
-        return message == null || message.isBlank()
-                ? exception.getClass().getSimpleName()
-                : message.lines().findFirst().orElse(message).trim();
-    }
 }

@@ -20,9 +20,7 @@ public class NegotiationRecoveryCandidateService {
     private static final List<ListingStatus> WATCHED_STATUSES =
             List.of(
                     ListingStatus.REJECTED,
-                    ListingStatus.EXPIRED,
-                    ListingStatus.UNAVAILABLE,
-                    ListingStatus.CONTACT_UNAVAILABLE
+                    ListingStatus.EXPIRED
             );
 
     private final ListingRepository listingRepository;

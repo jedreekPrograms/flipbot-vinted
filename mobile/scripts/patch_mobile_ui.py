@@ -4,6 +4,7 @@ APP_PATH = Path(__file__).resolve().parents[1] / "App.tsx"
 MARKER = "  root.style.webkitTextSizeAdjust = '100%';\n"
 STYLE_ID = "flipbot-mobile-app-styles"
 STATUS_BAR_DARK = '<StatusBar barStyle="light-content" backgroundColor="#172033" translucent={false} />'
+STATUS_BAR_EDGE_TO_EDGE = '<StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent />'
 STATUS_BAR_LIGHT = '<StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />'
 
 INJECTION = r'''
@@ -133,7 +134,7 @@ def main() -> None:
         patched = patched.replace(STATUS_BAR_DARK, STATUS_BAR_LIGHT)
         changed = True
         print(f"Switched {status_count} native status bar instance(s) to white with dark icons")
-    elif STATUS_BAR_LIGHT in patched:
+    elif STATUS_BAR_LIGHT in patched or STATUS_BAR_EDGE_TO_EDGE in patched:
         print("Native status bar is already white with dark icons")
     else:
         raise RuntimeError("Could not find expected native StatusBar configuration in App.tsx")

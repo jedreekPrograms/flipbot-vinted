@@ -8,7 +8,6 @@ import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.marketstats.dto.MarketStatsObserverPlaywrightResponse;
-import pl.flipbot.marketstats.dto.MarketStatsObserverResponse;
 
 import java.util.Optional;
 
@@ -21,13 +20,6 @@ public class MarketStatsObserverService {
             "Anonymous Market Observer";
 
     private final BotRepository botRepository;
-
-    @Transactional
-    public Optional<MarketStatsObserverResponse> getObserver() {
-        return Optional.of(
-                toResponse(ensureAnonymousObserver())
-        );
-    }
 
     @Transactional
     public Optional<MarketStatsObserverPlaywrightResponse> getObserverForPlaywright() {
@@ -119,13 +111,4 @@ public class MarketStatsObserverService {
         return saved;
     }
 
-    private MarketStatsObserverResponse toResponse(
-            Bot observer
-    ) {
-        return new MarketStatsObserverResponse(
-                observer.getId(),
-                ANONYMOUS_OBSERVER_NAME,
-                null
-        );
-    }
 }

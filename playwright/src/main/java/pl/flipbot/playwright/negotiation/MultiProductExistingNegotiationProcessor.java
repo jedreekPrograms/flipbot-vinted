@@ -1,5 +1,9 @@
 package pl.flipbot.playwright.negotiation;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
@@ -10,11 +14,6 @@ import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotProductExecutionPlan;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
 /**
  * Runs the existing-negotiation workflow once per product while preserving one
  * bot/account session and one global per-run action cap. Product priority is
@@ -23,13 +22,13 @@ import java.util.concurrent.ConcurrentMap;
  * backend payload while conversations started before deactivation are running.
  */
 @Slf4j
-public class MultiProductExistingNegotiationProcessor
-        extends ExistingNegotiationProcessor {
+public class MultiProductExistingNegotiationProcessor {
 
     private static final ConcurrentMap<Long, Integer> NEXT_PRODUCT_OFFSET =
             new ConcurrentHashMap<>();
 
     private final BotContext context;
+    private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
     private final boolean realNextStepsEnabled;
     private final int maxRealNextStepsPerRun;
@@ -43,15 +42,8 @@ public class MultiProductExistingNegotiationProcessor
             boolean realNextStepsEnabled,
             int maxRealNextStepsPerRun
     ) {
-        super(
-                context,
-                listingClient,
-                offerQuotaClient,
-                listingStatusUpdater,
-                realNextStepsEnabled,
-                maxRealNextStepsPerRun
-        );
         this.context = context;
+        this.listingClient = listingClient;
         this.listingStatusUpdater = listingStatusUpdater;
         this.realNextStepsEnabled = realNextStepsEnabled;
         this.maxRealNextStepsPerRun = maxRealNextStepsPerRun;
@@ -61,7 +53,6 @@ public class MultiProductExistingNegotiationProcessor
         );
     }
 
-    @Override
     public boolean process() {
         BotConfigurationDto main = context.getBot().getConfiguration();
         if (main == null) {
@@ -86,16 +77,15 @@ public class MultiProductExistingNegotiationProcessor
         );
 
         boolean sentAny = false;
-        try {
-            for (BotProductExecutionPlan.Target target : targets) {
-                context.getBot().setConfiguration(target.configuration());
+        for (BotProductExecutionPlan.Target target : targets) {
+                BotContext productContext = context.forProduct(target.configuration());
 
                 ListingClient targetClient = new TargetBoundListingClient(
-                        target.additionalTargetId()
+                        listingClient, target.additionalTargetId()
                 );
                 ExistingNegotiationProcessor delegate =
                         new ExistingNegotiationProcessor(
-                                context,
+                                productContext,
                                 targetClient,
                                 runQuota,
                                 listingStatusUpdater,
@@ -111,9 +101,6 @@ public class MultiProductExistingNegotiationProcessor
                                 : target.additionalTargetId()
                 );
                 sentAny |= delegate.process();
-            }
-        } finally {
-            context.getBot().setConfiguration(main);
         }
         return sentAny;
     }

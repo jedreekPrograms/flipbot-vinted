@@ -51,20 +51,6 @@ public class BotListingController {
 
     }
 
-    @GetMapping("/discovered")
-    public ResponseEntity<List<ListingResponse>>
-    getDiscoveredListings(
-            @PathVariable Long botId
-    ) {
-
-        return ResponseEntity.ok(
-                listingService.getDiscoveredListings(
-                        botId
-                )
-        );
-
-    }
-
     @GetMapping("/negotiating")
     public ResponseEntity<List<ListingResponse>>
     getNegotiatingListings(
@@ -103,32 +89,6 @@ public class BotListingController {
 
     }
 
-    @GetMapping("/purchased")
-    public ResponseEntity<List<ListingResponse>>
-    getPurchasedListings(
-            @PathVariable Long botId
-    ) {
-
-        return ResponseEntity.ok(
-                listingService.getPurchasedListings(
-                        botId
-                )
-        );
-    }
-
-    @GetMapping("/skipped-by-user")
-    public ResponseEntity<List<ListingResponse>>
-    getSkippedByUserListings(
-            @PathVariable Long botId
-    ) {
-
-        return ResponseEntity.ok(
-                listingService.getSkippedByUserListings(
-                        botId
-                )
-        );
-    }
-
     @PatchMapping("/{listingId}/purchased")
     public ResponseEntity<ListingResponse>
     markAsPurchased(
@@ -158,7 +118,6 @@ public class BotListingController {
                 )
         );
     }
-
 
     @GetMapping("/negotiation-capacity")
     public ResponseEntity<NegotiationCapacityResponse>

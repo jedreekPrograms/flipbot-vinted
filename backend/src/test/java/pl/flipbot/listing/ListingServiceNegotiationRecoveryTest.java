@@ -13,10 +13,26 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class ListingServiceNegotiationRecoveryTest {
+
+    @Test
+    void unavailableConversationsCannotBeReopenedEvenByAnOldPlaywrightProcess() {
+        ListingRepository repository = mock(ListingRepository.class);
+        ListingService service = new ListingService(repository, mock(BotRepository.class), mock(ListingMapper.class),
+                mock(ListingClaimService.class), mock(ListingRediscoveryService.class),
+                mock(NegotiationStrategySnapshotService.class), new NegotiationRecoveryCandidateService(repository));
+        for (ListingStatus status : java.util.List.of(ListingStatus.UNAVAILABLE, ListingStatus.CONTACT_UNAVAILABLE)) {
+            Listing listing = Listing.builder().id(73L).status(status).build();
+            when(repository.findByIdAndBotId(73L, 3L)).thenReturn(Optional.of(listing));
+            assertThrows(IllegalStateException.class, () -> service.reopenNegotiationForRecovery(
+                    3L, 73L, new ReopenNegotiationRequest(false, "stale recovery")));
+            assertEquals(status, listing.getStatus());
+        }
+    }
 
     @Test
     void reopeningTechnicalTerminalConversationPreservesStepTimers() {

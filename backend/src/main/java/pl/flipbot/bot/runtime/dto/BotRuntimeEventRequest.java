@@ -17,4 +17,5 @@ public class BotRuntimeEventRequest {
     private Integer workerSlot;
 
     private String errorMessage;
+    //
 }

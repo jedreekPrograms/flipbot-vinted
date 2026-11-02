@@ -2,17 +2,15 @@ package pl.flipbot.playwright.context;
 
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.Page;
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.browser.BrowserManager;
-import pl.flipbot.playwright.marketplace.MarketplaceUrls;
+import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 import pl.flipbot.playwright.session.SessionManager;
-
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import pl.flipbot.playwright.session.VintedSessionDiagnostics;
 
 @Slf4j
 @Getter
@@ -20,404 +18,6 @@ public class BotContext implements AutoCloseable {
 
     private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
             "Anonymous Market Observer";
-
-    /*
-     * FlipBot is intentionally a single-page browser application. None of the
-     * supported production flows needs window.open(), target=_blank links or a
-     * form that submits into a new browsing context.
-     *
-     * Closing an extra Playwright Page from BrowserContext.onPage() is still an
-     * important fail-safe, but Chromium has already created a visible tab by
-     * the time that event is emitted. Advertising/RTB code can therefore flash
-     * a real landing page (for example wp.pl) for a moment before the reactive
-     * guard closes it.
-     *
-     * This init script runs before page/iframe scripts and blocks the common
-     * popup creation mechanisms at the DOM level. The existing onPage guard is
-     * deliberately kept as a second line of defence for any browser mechanism
-     * that bypasses the script.
-     */
-    private static final String PREEMPTIVE_POPUP_SUPPRESSION_SCRIPT = """
-            (() => {
-                const normalizedTarget = (target) =>
-                    String(target ?? "").trim().toLowerCase();
-
-                const opensNewBrowsingContext = (target) => {
-                    const normalized = normalizedTarget(target);
-
-                    if (!normalized || normalized === "_self") {
-                        return false;
-                    }
-
-                    return normalized !== "_top"
-                        && normalized !== "_parent";
-                };
-
-                const effectiveTarget = (element) => {
-                    const ownTarget = normalizedTarget(element?.target);
-                    if (ownTarget) {
-                        return ownTarget;
-                    }
-
-                    const base = document.querySelector("base[target]");
-                    return normalizedTarget(base?.getAttribute("target"));
-                };
-
-                const blockedWindowOpen = () => null;
-
-                try {
-                    Object.defineProperty(window, "open", {
-                        value: blockedWindowOpen,
-                        writable: false,
-                        configurable: false
-                    });
-                } catch (_) {
-                    try {
-                        window.open = blockedWindowOpen;
-                    } catch (_) {
-                        // BrowserContext.onPage remains the fail-safe.
-                    }
-                }
-
-                const blockNewContextClick = (event) => {
-                    const path = typeof event.composedPath === "function"
-                        ? event.composedPath()
-                        : [];
-
-                    for (const node of path) {
-                        const isLink = node instanceof HTMLAnchorElement
-                            || node instanceof HTMLAreaElement;
-
-                        if (isLink
-                                && opensNewBrowsingContext(
-                                    effectiveTarget(node)
-                                )) {
-                            event.preventDefault();
-                            event.stopImmediatePropagation();
-                            return;
-                        }
-                    }
-                };
-
-                document.addEventListener("click", blockNewContextClick, true);
-                document.addEventListener("auxclick", blockNewContextClick, true);
-
-                document.addEventListener("submit", (event) => {
-                    const form = event.target;
-
-                    if (form instanceof HTMLFormElement
-                            && opensNewBrowsingContext(
-                                effectiveTarget(form)
-                            )) {
-                        event.preventDefault();
-                        event.stopImmediatePropagation();
-                    }
-                }, true);
-
-                /*
-                 * form.submit() bypasses the submit event entirely. RTB/ad
-                 * scripts can use it to create a popup even when the capture
-                 * listener above is present, so guard the imperative APIs too.
-                 */
-                try {
-                    const nativeFormSubmit =
-                        HTMLFormElement.prototype.submit;
-
-                    HTMLFormElement.prototype.submit =
-                        function(...args) {
-                            if (opensNewBrowsingContext(
-                                    effectiveTarget(this)
-                            )) {
-                                return;
-                            }
-
-                            return nativeFormSubmit.apply(this, args);
-                        };
-                } catch (_) {
-                    // Capture listener + onPage remain fail-safes.
-                }
-
-                try {
-                    const nativeRequestSubmit =
-                        HTMLFormElement.prototype.requestSubmit;
-
-                    if (typeof nativeRequestSubmit === "function") {
-                        HTMLFormElement.prototype.requestSubmit =
-                            function(...args) {
-                                if (opensNewBrowsingContext(
-                                        effectiveTarget(this)
-                                )) {
-                                    return;
-                                }
-
-                                return nativeRequestSubmit.apply(this, args);
-                            };
-                    }
-                } catch (_) {
-                    // Capture listener + onPage remain fail-safes.
-                }
-            })();
-            """;
-
-    /*
-     * The anonymous market observer does not run LoginService, so it used to
-     * miss LoginService.acceptCookiesIfVisible(). A late OneTrust dialog could
-     * therefore cover the whole catalog and intercept clicks on category,
-     * brand and model filters for 30 seconds at a time.
-     *
-     * The same anonymous UI also exposed a Vinted rendering variant where a
-     * model row was visibly labelled (for example "Galaxy A56") but the text
-     * was rendered next to the selectable test-id node instead of inside it.
-     * FilterActions deliberately refuses to guess model identity, so those
-     * rows failed closed even though a human could see the exact option.
-     *
-     * This observer-only compatibility script fixes both presentation issues:
-     * - it accepts the standard OneTrust "accept all" consent as soon as it is
-     *   rendered, including after navigation/reset;
-     * - for a selectable Vinted model node with no readable label of its own,
-     *   it copies text only from the smallest ancestor that contains exactly
-     *   one brand_collection id. The text is exposed through title, which the
-     *   existing strict Java matcher already reads. It never chooses a model
-     *   and never fabricates a collection id.
-     */
-    private static final String ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT = """
-            (() => {
-                const MODEL_PREFIX = "selectable-item-brand_collection-";
-                const MODEL_SELECTOR = `[data-testid^="${MODEL_PREFIX}"]`;
-                const ACCEPT_ALL_LABELS = new Set([
-                    "zgoda na wszystkie",
-                    "akceptuj wszystkie",
-                    "accept all",
-                    "allow all"
-                ]);
-
-                const normalize = (value) =>
-                    String(value ?? "")
-                        .replace(/\\s+/g, " ")
-                        .trim();
-
-                const isVisible = (element) => {
-                    if (!(element instanceof Element)) {
-                        return false;
-                    }
-
-                    const style = window.getComputedStyle(element);
-                    const rect = element.getBoundingClientRect();
-                    return style.display !== "none"
-                        && style.visibility !== "hidden"
-                        && Number(style.opacity || "1") > 0
-                        && rect.width > 0
-                        && rect.height > 0;
-                };
-
-                const acceptCookieConsent = () => {
-                    const primary = document.querySelector(
-                        "#onetrust-accept-btn-handler"
-                    );
-
-                    if (primary instanceof HTMLElement
-                            && isVisible(primary)
-                            && !primary.hasAttribute("disabled")) {
-                        primary.click();
-                        return true;
-                    }
-
-                    const buttons = Array.from(
-                        document.querySelectorAll("button")
-                    );
-
-                    for (const button of buttons) {
-                        if (!isVisible(button)
-                                || button.hasAttribute("disabled")) {
-                            continue;
-                        }
-
-                        const label = normalize(
-                            button.innerText
-                                || button.textContent
-                                || button.getAttribute("aria-label")
-                        ).toLowerCase();
-
-                        if (ACCEPT_ALL_LABELS.has(label)) {
-                            button.click();
-                            return true;
-                        }
-                    }
-
-                    return false;
-                };
-
-                const collectionIdFromTestId = (testId) => {
-                    const match = /^selectable-item-brand_collection-(\\d+)(?:--title)?$/
-                        .exec(String(testId ?? "").trim());
-                    return match ? match[1] : null;
-                };
-
-                const readableText = (element) => {
-                    if (!(element instanceof Element) || !isVisible(element)) {
-                        return "";
-                    }
-
-                    return normalize(
-                        element.innerText
-                            || element.textContent
-                            || element.getAttribute("aria-label")
-                            || element.getAttribute("title")
-                    );
-                };
-
-                const uniqueCollectionIdsInside = (element) => {
-                    const ids = new Set();
-
-                    if (!(element instanceof Element)) {
-                        return ids;
-                    }
-
-                    const ownId = collectionIdFromTestId(
-                        element.getAttribute("data-testid")
-                    );
-                    if (ownId) {
-                        ids.add(ownId);
-                    }
-
-                    for (const candidate of element.querySelectorAll(MODEL_SELECTOR)) {
-                        const id = collectionIdFromTestId(
-                            candidate.getAttribute("data-testid")
-                        );
-                        if (id) {
-                            ids.add(id);
-                        }
-                    }
-
-                    return ids;
-                };
-
-                const looksLikeWholeFilterPanel = (text) => {
-                    const lower = normalize(text).toLowerCase();
-                    return lower.includes("pokaż wyniki")
-                        || lower.includes("pokaz wyniki")
-                        || lower.includes("show results")
-                        || lower.includes("wyczyść filtry")
-                        || lower.includes("wyczysc filtry")
-                        || lower.includes("clear filters");
-                };
-
-                const resolveAssociatedModelText = (candidate, collectionId) => {
-                    const directTitle = document.querySelector(
-                        `[data-testid="${MODEL_PREFIX}${collectionId}--title"]`
-                    );
-                    const directTitleText = readableText(directTitle);
-                    if (directTitleText) {
-                        return directTitleText;
-                    }
-
-                    let current = candidate.parentElement;
-
-                    for (let depth = 0; current && depth < 7; depth++) {
-                        const ids = uniqueCollectionIdsInside(current);
-
-                        if (ids.size === 1 && ids.has(collectionId)) {
-                            const leafTexts = [];
-
-                            for (const leaf of current.querySelectorAll("*")) {
-                                if (leaf.children.length !== 0 || !isVisible(leaf)) {
-                                    continue;
-                                }
-
-                                const text = readableText(leaf);
-                                if (text && !leafTexts.includes(text)) {
-                                    leafTexts.push(text);
-                                }
-                            }
-
-                            const joinedLeaves = normalize(leafTexts.join("\n"));
-                            if (joinedLeaves
-                                    && joinedLeaves.length <= 220
-                                    && !looksLikeWholeFilterPanel(joinedLeaves)) {
-                                return joinedLeaves;
-                            }
-
-                            const wholeText = readableText(current);
-                            if (wholeText
-                                    && wholeText.length <= 220
-                                    && !looksLikeWholeFilterPanel(wholeText)) {
-                                return wholeText;
-                            }
-                        }
-
-                        current = current.parentElement;
-                    }
-
-                    return "";
-                };
-
-                const exposeModelLabels = () => {
-                    const candidates = Array.from(
-                        document.querySelectorAll(MODEL_SELECTOR)
-                    );
-
-                    for (const candidate of candidates) {
-                        const collectionId = collectionIdFromTestId(
-                            candidate.getAttribute("data-testid")
-                        );
-                        if (!collectionId) {
-                            continue;
-                        }
-
-                        const ownReadableText = normalize(
-                            candidate.innerText
-                                || candidate.textContent
-                                || candidate.getAttribute("aria-label")
-                                || candidate.getAttribute("title")
-                        );
-                        if (ownReadableText) {
-                            continue;
-                        }
-
-                        const associatedText = resolveAssociatedModelText(
-                            candidate,
-                            collectionId
-                        );
-
-                        if (associatedText) {
-                            candidate.setAttribute("title", associatedText);
-                        }
-                    }
-                };
-
-                let scheduled = false;
-                const stabilize = () => {
-                    if (scheduled) {
-                        return;
-                    }
-
-                    scheduled = true;
-                    queueMicrotask(() => {
-                        scheduled = false;
-                        acceptCookieConsent();
-                        exposeModelLabels();
-                    });
-                };
-
-                stabilize();
-
-                const observer = new MutationObserver(stabilize);
-                observer.observe(document, {
-                    childList: true,
-                    subtree: true,
-                    attributes: true,
-                    attributeFilter: [
-                        "class",
-                        "style",
-                        "aria-hidden",
-                        "disabled"
-                    ]
-                });
-            })();
-            """;
-
-    private static final int EXTRA_PAGE_LOG_FIRST_EVENTS = 3;
-    private static final int EXTRA_PAGE_LOG_INTERVAL = 25;
 
     private final BotDetailsDto bot;
 
@@ -427,11 +27,8 @@ public class BotContext implements AutoCloseable {
 
     private final SessionManager sessionManager;
 
-    private final boolean sessionRestoreEnabled;
-
-    private final boolean sessionPersistenceEnabled;
-
     private final boolean storedSessionRestored;
+    private final boolean ownsBrowserContext;
 
     private final AtomicInteger extraPageEvents = new AtomicInteger();
 
@@ -439,51 +36,13 @@ public class BotContext implements AutoCloseable {
             BotDetailsDto bot,
             BrowserManager browserManager
     ) {
-        this(bot, browserManager, true, true);
-    }
-
-    public static BotContext isolated(
-            BotDetailsDto bot,
-            BrowserManager browserManager
-    ) {
-        return new BotContext(bot, browserManager, false, false);
-    }
-
-    public static BotContext readOnlySessionClone(
-            BotDetailsDto bot,
-            BrowserManager browserManager
-    ) {
-        return new BotContext(bot, browserManager, true, false);
-    }
-
-    private BotContext(
-            BotDetailsDto bot,
-            BrowserManager browserManager,
-            boolean sessionRestoreEnabled,
-            boolean sessionPersistenceEnabled
-    ) {
         this.bot = bot;
         this.sessionManager = new SessionManager();
-        this.sessionRestoreEnabled = sessionRestoreEnabled;
-        this.sessionPersistenceEnabled = sessionPersistenceEnabled;
+        this.ownsBrowserContext = true;
 
         Path sessionFile = null;
 
-        if (!sessionRestoreEnabled && !sessionPersistenceEnabled) {
-            log.info(
-                    "[SESSION] Bot {} is using an isolated browser context. Stored production session state will not be restored or persisted by this job.",
-                    bot.getId()
-            );
-        } else if (sessionRestoreEnabled
-                && !sessionPersistenceEnabled) {
-            log.info(
-                    "[SESSION] Bot {} is using a read-only clone of its stored production session. The session may be restored, but this job cannot persist any browser state back to bot-{}.json.",
-                    bot.getId(),
-                    bot.getId()
-            );
-        }
-
-        if (shouldRestoreStoredSession(bot, sessionRestoreEnabled)
+        if (shouldRestoreStoredSession(bot)
                 && sessionManager.sessionExists(bot.getId())) {
             sessionFile = sessionManager.sessionFile(bot.getId());
         } else if (isAnonymousMarketObserver(bot)) {
@@ -506,26 +65,35 @@ public class BotContext implements AutoCloseable {
          */
         this.browserContext = browserManager.createContext(sessionFile);
 
+        VintedSessionDiagnostics.install(browserContext, bot.getId());
+
+        if (!isAnonymousMarketObserver(bot)) {
+            browserContext.addInitScript("delete Object.getPrototypeOf(navigator).webdriver;");
+        }
         installPreemptivePopupSuppression();
         installAnonymousObserverUiStabilityIfNeeded();
 
-        this.page = resolveMainPage();
+        this.page = new SinglePageGuard(browserContext, bot.getId(), extraPageEvents).openMainPage();
+    }
 
-        closeExistingExtraPages();
-        registerSinglePageGuard();
+    private BotContext(BotContext owner, BotConfigurationDto configuration) {
+        this.bot = owner.bot.withConfiguration(configuration);
+        this.browserContext = owner.browserContext;
+        this.page = owner.page;
+        this.sessionManager = owner.sessionManager;
+        this.storedSessionRestored = owner.storedSessionRestored;
+        this.ownsBrowserContext = false;
+    }
+
+    /** A product view shares the live page but cannot close/persist its owner. */
+    public BotContext forProduct(BotConfigurationDto configuration) {
+        return new BotContext(this, configuration);
     }
 
     static boolean shouldRestoreStoredSession(
             BotDetailsDto bot
     ) {
-        return shouldRestoreStoredSession(bot, true);
-    }
-
-    static boolean shouldRestoreStoredSession(
-            BotDetailsDto bot,
-            boolean sessionPersistenceEnabled
-    ) {
-        return sessionPersistenceEnabled && !isAnonymousMarketObserver(bot);
+        return !isAnonymousMarketObserver(bot);
     }
 
     private static boolean isAnonymousMarketObserver(
@@ -546,7 +114,7 @@ public class BotContext implements AutoCloseable {
 
     private void installPreemptivePopupSuppression() {
         browserContext.addInitScript(
-                PREEMPTIVE_POPUP_SUPPRESSION_SCRIPT
+                ContextScripts.PREVENT_EXTRA_PAGES
         );
 
         log.info(
@@ -562,198 +130,26 @@ public class BotContext implements AutoCloseable {
         }
 
         browserContext.addInitScript(
-                ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT
+                ContextScripts.OBSERVER_MODEL_LABELS
         );
 
         log.info(
                 "[MARKET STATS UI] Anonymous observer {} UI guard enabled. "
-                        + "OneTrust accept-all consent is handled automatically and model-row labels are normalized without relaxing exact model verification.",
+                        + "Model-row labels are normalized without relaxing exact model verification. Cookie consent uses the shared handler, with no second observer clicker.",
                 bot.getId()
         );
     }
 
     static String preemptivePopupSuppressionScript() {
-        return PREEMPTIVE_POPUP_SUPPRESSION_SCRIPT;
+        return ContextScripts.PREVENT_EXTRA_PAGES;
     }
 
     static String anonymousObserverUiStabilityScript() {
-        return ANONYMOUS_OBSERVER_UI_STABILITY_SCRIPT;
-    }
-
-    private Page resolveMainPage() {
-        List<Page> existingPages = browserContext.pages();
-
-        for (Page existingPage : existingPages) {
-            if (isVintedPage(existingPage)) {
-                log.info(
-                        "[BROWSER] Reusing existing Vinted page: {}",
-                        existingPage.url()
-                );
-
-                return existingPage;
-            }
-        }
-
-        if (!existingPages.isEmpty()) {
-            Page existingPage = existingPages.getFirst();
-
-            log.info(
-                    "[BROWSER] Reusing existing browser page: {}",
-                    existingPage.url()
-            );
-
-            return existingPage;
-        }
-
-        log.info(
-                "[BROWSER] No existing page found. Creating new page."
-        );
-
-        return browserContext.newPage();
-    }
-
-    private void closeExistingExtraPages() {
-        List<Page> pages = new ArrayList<>(browserContext.pages());
-
-        for (Page existingPage : pages) {
-            if (existingPage == page) {
-                continue;
-            }
-
-            closeUnexpectedPage(
-                    existingPage,
-                    "existing extra page",
-                    true
-            );
-        }
-    }
-
-    private void registerSinglePageGuard() {
-        /*
-         * Register both popup-specific and context-wide hooks. Chromium can
-         * surface ad-tech windows through slightly different opener paths; the
-         * page-level popup hook gives us the earliest owner-specific callback,
-         * while BrowserContext.onPage remains the catch-all.
-         */
-        page.onPopup(
-                popup -> handleUnexpectedPageEvent(
-                        popup,
-                        "main-page popup"
-                )
-        );
-
-        browserContext.onPage(
-                newPage -> handleUnexpectedPageEvent(
-                        newPage,
-                        "browser-context page"
-                )
-        );
-
-        log.info(
-                "[BROWSER] Single-page fail-safe enabled for bot {}. Any additional browser tab/window that still reaches Chromium will be closed immediately.",
-                bot.getId()
-        );
-    }
-
-    private void handleUnexpectedPageEvent(
-            Page unexpectedPage,
-            String source
-    ) {
-        try {
-            if (unexpectedPage == null
-                    || unexpectedPage == page
-                    || unexpectedPage.isClosed()) {
-                return;
-            }
-
-            int eventNumber = extraPageEvents.incrementAndGet();
-
-            closeUnexpectedPage(
-                    unexpectedPage,
-                    "single-page policy, "
-                            + source
-                            + ", extra-page event #"
-                            + eventNumber,
-                    shouldLogExtraPageEvent(eventNumber)
-            );
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "[BROWSER] Failed while handling unexpected page event for bot {}. source={}",
-                    bot.getId(),
-                    source,
-                    exception
-            );
-        }
-    }
-
-    private boolean shouldLogExtraPageEvent(int eventNumber) {
-        return eventNumber <= EXTRA_PAGE_LOG_FIRST_EVENTS
-                || eventNumber % EXTRA_PAGE_LOG_INTERVAL == 0;
-    }
-
-    private void closeUnexpectedPage(
-            Page unexpectedPage,
-            String reason,
-            boolean logEvent
-    ) {
-        try {
-            if (unexpectedPage == page || unexpectedPage.isClosed()) {
-                return;
-            }
-
-            String url = normalizeUrl(unexpectedPage.url());
-
-            if (logEvent) {
-                log.warn(
-                        "[BROWSER] Closing unexpected browser page immediately. Bot: {}, reason: {}, initialURL: {}",
-                        bot.getId(),
-                        reason,
-                        url
-                );
-            } else {
-                log.debug(
-                        "[BROWSER] Suppressed extra-page log. Bot: {}, reason: {}, initialURL: {}",
-                        bot.getId(),
-                        reason,
-                        url
-                );
-            }
-
-            unexpectedPage.close();
-
-        } catch (Exception exception) {
-            log.warn(
-                    "[BROWSER] Could not close unexpected page for bot {}. reason={}",
-                    bot.getId(),
-                    reason,
-                    exception
-            );
-        }
-    }
-
-    private boolean isVintedPage(Page candidate) {
-        try {
-            return MarketplaceUrls.isVintedUrl(
-                    normalizeUrl(candidate.url())
-            );
-        } catch (Exception exception) {
-            return false;
-        }
-    }
-
-    private String normalizeUrl(String url) {
-        return url == null
-                ? ""
-                : url.trim();
+        return ContextScripts.OBSERVER_MODEL_LABELS;
     }
 
     public void saveSession() {
-        if (!sessionPersistenceEnabled) {
-            log.debug(
-                    "[SESSION] Skipping session save for non-persistent bot {} context. restoreEnabled={}.",
-                    bot.getId(),
-                    sessionRestoreEnabled
-            );
+        if (!ownsBrowserContext) {
             return;
         }
 
@@ -773,6 +169,9 @@ public class BotContext implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!ownsBrowserContext) {
+            return;
+        }
         int blockedExtraPages = extraPageEvents.get();
 
         if (blockedExtraPages > 0) {

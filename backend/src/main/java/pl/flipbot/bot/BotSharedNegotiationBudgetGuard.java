@@ -2,6 +2,7 @@ package pl.flipbot.bot;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import pl.flipbot.exception.InvalidRequestException;
 import pl.flipbot.bot.configuration.BotAdditionalTarget;
 import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.configuration.TargetMode;
@@ -93,7 +94,7 @@ public class BotSharedNegotiationBudgetGuard {
                 String state = Boolean.TRUE.equals(target.getActive())
                         ? "aktywnego"
                         : "wyłączonego z trwającą negocjacją";
-                throw new IllegalArgumentException(
+                throw new InvalidRequestException(
                         "Dzienny budżet negocjacyjny nie może być niższy niż liczba kroków "
                                 + state
                                 + " dodatkowego produktu "
@@ -112,7 +113,7 @@ public class BotSharedNegotiationBudgetGuard {
     ) {
         for (BotAdditionalTarget target : activeTargets) {
             if (target != null && sameTarget(configuration, target)) {
-                throw new IllegalArgumentException(
+                throw new InvalidRequestException(
                         "Produkt główny nie może mieć tego samego celu co aktywny dodatkowy produkt "
                                 + target.getId()
                                 + "."
@@ -159,7 +160,7 @@ public class BotSharedNegotiationBudgetGuard {
         int budget = configuration.getDailyNegotiationBudget();
         int stepCount = configuration.getNegotiationSteps().size();
         if (budget > 0 && stepCount > budget) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "Liczba kroków produktu głównego nie może przekraczać dziennego budżetu negocjacyjnego ("
                             + budget
                             + ")."

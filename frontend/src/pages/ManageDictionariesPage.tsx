@@ -1,21 +1,16 @@
-import {
-    useCallback,
-    useEffect,
-    useState,
-} from "react";
+import { getErrorMessage } from "../shared/errorMessage";
+import { useState } from "react";
 
 import {
     deleteBrand,
     deleteCategory,
     deleteModel,
-    getBrands,
-    getCategories,
-    getModelsByBrand,
     updateBrand,
     updateCategory,
     updateModel,
     updateModelCategory,
 } from "../api/dictionariesApi";
+import { useDictionaryCatalog } from "../features/dictionaries/useDictionaryCatalog";
 import AppDialog from "../components/AppDialog";
 import AppSelect, { type AppSelectOption } from "../components/AppSelect";
 import type {
@@ -32,78 +27,17 @@ type EditTarget =
 type DeleteTarget = EditTarget;
 
 function ManageDictionariesPage() {
-    const [brands, setBrands] = useState<DictionaryBrand[]>([]);
-    const [categories, setCategories] = useState<DictionaryCategory[]>([]);
-    const [models, setModels] = useState<DictionaryModel[]>([]);
-    const [selectedBrandId, setSelectedBrandId] = useState("");
-    const [isLoading, setIsLoading] = useState(true);
-    const [isModelsLoading, setIsModelsLoading] = useState(false);
     const [actionKey, setActionKey] = useState<string | null>(null);
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
     const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
     const [editValue, setEditValue] = useState("");
     const [editError, setEditError] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
 
-    const loadBaseData = useCallback(async () => {
-        setIsLoading(true);
-        setErrorMessage(null);
-
-        try {
-            const [loadedBrands, loadedCategories] = await Promise.all([
-                getBrands(),
-                getCategories(),
-            ]);
-            const sortedBrands = [...loadedBrands].sort((left, right) =>
-                left.name.localeCompare(right.name, "pl"),
-            );
-            setBrands(sortedBrands);
-            setCategories(
-                [...loadedCategories].sort((left, right) =>
-                    left.path.localeCompare(right.path, "pl"),
-                ),
-            );
-            setSelectedBrandId((current) => {
-                if (sortedBrands.some((brand) => String(brand.id) === current)) {
-                    return current;
-                }
-                return sortedBrands.length > 0 ? String(sortedBrands[0].id) : "";
-            });
-        } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać słowników."));
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    const loadModels = useCallback(async (brandId: number) => {
-        setIsModelsLoading(true);
-        try {
-            setModels(
-                [...await getModelsByBrand(brandId)].sort((left, right) =>
-                    left.name.localeCompare(right.name, "pl"),
-                ),
-            );
-        } catch (error) {
-            setModels([]);
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać modeli."));
-        } finally {
-            setIsModelsLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        void loadBaseData();
-    }, [loadBaseData]);
-
-    useEffect(() => {
-        if (selectedBrandId.length === 0) {
-            setModels([]);
-            return;
-        }
-        void loadModels(Number(selectedBrandId));
-    }, [selectedBrandId, loadModels]);
+    const {
+        brands, categories, models, selectedBrandId, setSelectedBrandId,
+        isLoading, isModelsLoading, errorMessage, setErrorMessage, loadBaseData, loadModels,
+    } = useDictionaryCatalog();
 
     async function runAction(
         key: string,
@@ -571,10 +505,6 @@ function parseCategoryPath(value: string): string[] {
 
 function normalizeText(value: string): string {
     return value.trim().replace(/\s+/g, " ");
-}
-
-function getErrorMessage(error: unknown, fallbackMessage: string): string {
-    return error instanceof Error ? error.message : fallbackMessage;
 }
 
 export default ManageDictionariesPage;

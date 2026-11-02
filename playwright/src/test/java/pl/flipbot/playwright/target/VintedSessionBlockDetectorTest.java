@@ -17,6 +17,24 @@ public class VintedSessionBlockDetectorTest {
     }
 
     @Test
+    public void recognizesPolishHeadingWithoutSupportingParagraph() {
+        assertTrue(
+                VintedSessionBlockDetector.findBlockedMarker(
+                        "TWOJA SESJA ZOSTAŁA\u00a0ZABLOKOWANA"
+                ).isPresent()
+        );
+    }
+
+    @Test
+    public void recognizesPolishTemporaryBlockWithStrokedL() {
+        assertTrue(
+                VintedSessionBlockDetector.findBlockedMarker(
+                        "Tymczasowo zablokowaliśmy Ci dostęp."
+                ).isPresent()
+        );
+    }
+
+    @Test
     public void recognizesEnglishSessionBlockScreen() {
         assertTrue(
                 VintedSessionBlockDetector.findBlockedMarker(

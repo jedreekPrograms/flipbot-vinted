@@ -2,12 +2,13 @@ package pl.flipbot.playwright.marketstats;
 
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Locale;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.booleanValue;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.clampedIntValue;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.clampedLongValue;
 
 @Slf4j
 public record MarketStatsRuntimeConfig(
         boolean enabled,
-        Long observerBotId,
         boolean headless,
         long refreshCooldownMinutes,
         int maxListingsPerModel,
@@ -24,8 +25,6 @@ public record MarketStatsRuntimeConfig(
             "FLIPBOT_SCHEDULER_HEADLESS";
     private static final String REFRESH_MINUTES_ENV =
             "FLIPBOT_MARKET_STATS_REFRESH_MINUTES";
-    private static final String LEGACY_INTERVAL_HOURS_ENV =
-            "FLIPBOT_MARKET_STATS_INTERVAL_HOURS";
     private static final String MAX_LISTINGS_ENV =
             "FLIPBOT_MARKET_STATS_MAX_LISTINGS_PER_MODEL";
     private static final String KNOWN_BOUNDARY_ENV =
@@ -44,23 +43,20 @@ public record MarketStatsRuntimeConfig(
         String explicitObserverHeadless = System.getenv(HEADLESS_ENV);
         String schedulerHeadless = System.getenv(SCHEDULER_HEADLESS_ENV);
         String explicitRefreshMinutes = System.getenv(REFRESH_MINUTES_ENV);
-        String legacyIntervalHours = System.getenv(LEGACY_INTERVAL_HOURS_ENV);
 
         MarketStatsRuntimeConfig config =
                 new MarketStatsRuntimeConfig(
-                        readBoolean(ENABLED_ENV, true),
-                        null,
+                        booleanValue(ENABLED_ENV, true),
                         resolveObserverHeadless(
                                 explicitObserverHeadless,
                                 schedulerHeadless
                         ),
                         resolveRefreshCooldownMinutes(
-                                explicitRefreshMinutes,
-                                legacyIntervalHours
+                                explicitRefreshMinutes
                         ),
-                        readIntInRange(MAX_LISTINGS_ENV, 600, 50, 5_000),
-                        readIntInRange(KNOWN_BOUNDARY_ENV, 20, 5, 100),
-                        readLongInRange(INTER_MODEL_DELAY_ENV, 2_500L, 0L, 60_000L),
+                        clampedIntValue(System.getenv(MAX_LISTINGS_ENV), 600, 50, 5_000),
+                        clampedIntValue(System.getenv(KNOWN_BOUNDARY_ENV), 20, 5, 100),
+                        clampedLongValue(System.getenv(INTER_MODEL_DELAY_ENV), 2_500L, 0L, 60_000L),
                         resolveBrowserRecycleTargetCount(
                                 System.getenv(BROWSER_RECYCLE_TARGETS_ENV)
                         )
@@ -74,8 +70,6 @@ public record MarketStatsRuntimeConfig(
 
         String refreshSource = hasText(explicitRefreshMinutes)
                 ? REFRESH_MINUTES_ENV
-                : hasText(legacyIntervalHours)
-                ? LEGACY_INTERVAL_HOURS_ENV + " (legacy compatibility)"
                 : "default=" + DEFAULT_REFRESH_COOLDOWN_MINUTES + "m";
 
         log.info(
@@ -100,7 +94,7 @@ public record MarketStatsRuntimeConfig(
             String schedulerHeadless
     ) {
         if (hasText(explicitObserverHeadless)) {
-            return parseBoolean(
+            return booleanValue(
                     HEADLESS_ENV,
                     explicitObserverHeadless,
                     true
@@ -108,7 +102,7 @@ public record MarketStatsRuntimeConfig(
         }
 
         if (hasText(schedulerHeadless)) {
-            return parseBoolean(
+            return booleanValue(
                     SCHEDULER_HEADLESS_ENV,
                     schedulerHeadless,
                     true
@@ -118,37 +112,12 @@ public record MarketStatsRuntimeConfig(
         return true;
     }
 
-    static long resolveRefreshCooldownMinutes(
-            String explicitMinutes,
-            String legacyHours
-    ) {
-        if (hasText(explicitMinutes)) {
-            return parseLongInRange(
-                    explicitMinutes,
-                    DEFAULT_REFRESH_COOLDOWN_MINUTES,
-                    MIN_REFRESH_COOLDOWN_MINUTES,
-                    MAX_REFRESH_COOLDOWN_MINUTES
-            );
-        }
-
-        if (hasText(legacyHours)) {
-            long hours = parseLongInRange(
-                    legacyHours,
-                    24L,
-                    1L,
-                    168L
-            );
-            return Math.min(
-                    hours * 60L,
-                    MAX_REFRESH_COOLDOWN_MINUTES
-            );
-        }
-
-        return DEFAULT_REFRESH_COOLDOWN_MINUTES;
+    static long resolveRefreshCooldownMinutes(String explicitMinutes) {
+        return clampedLongValue(explicitMinutes, DEFAULT_REFRESH_COOLDOWN_MINUTES,
+                MIN_REFRESH_COOLDOWN_MINUTES, MAX_REFRESH_COOLDOWN_MINUTES);
     }
-
     static int resolveBrowserRecycleTargetCount(String raw) {
-        return parseIntInRange(
+        return clampedIntValue(
                 raw,
                 DEFAULT_BROWSER_RECYCLE_TARGETS,
                 1,
@@ -156,106 +125,8 @@ public record MarketStatsRuntimeConfig(
         );
     }
 
-    private static boolean readBoolean(
-            String name,
-            boolean fallback
-    ) {
-        String raw = System.getenv(name);
-
-        if (!hasText(raw)) {
-            return fallback;
-        }
-
-        return parseBoolean(name, raw, fallback);
-    }
-
-    private static boolean parseBoolean(
-            String name,
-            String raw,
-            boolean fallback
-    ) {
-        String normalized = raw.trim().toLowerCase(Locale.ROOT);
-
-        return switch (normalized) {
-            case "true", "1", "yes", "y", "on" -> true;
-            case "false", "0", "no", "n", "off" -> false;
-            default -> {
-                log.warn(
-                        "Invalid {}='{}'. Using default {}.",
-                        name,
-                        raw,
-                        fallback
-                );
-                yield fallback;
-            }
-        };
-    }
-
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
 
-    private static int readIntInRange(
-            String name,
-            int fallback,
-            int minimum,
-            int maximum
-    ) {
-        return parseIntInRange(
-                System.getenv(name),
-                fallback,
-                minimum,
-                maximum
-        );
-    }
-
-    private static int parseIntInRange(
-            String raw,
-            int fallback,
-            int minimum,
-            int maximum
-    ) {
-        if (!hasText(raw)) {
-            return fallback;
-        }
-
-        try {
-            int value = Integer.parseInt(raw.trim());
-            return Math.max(minimum, Math.min(maximum, value));
-        } catch (NumberFormatException exception) {
-            return fallback;
-        }
-    }
-
-    private static long readLongInRange(
-            String name,
-            long fallback,
-            long minimum,
-            long maximum
-    ) {
-        return parseLongInRange(
-                System.getenv(name),
-                fallback,
-                minimum,
-                maximum
-        );
-    }
-
-    private static long parseLongInRange(
-            String raw,
-            long fallback,
-            long minimum,
-            long maximum
-    ) {
-        if (!hasText(raw)) {
-            return fallback;
-        }
-
-        try {
-            long value = Long.parseLong(raw.trim());
-            return Math.max(minimum, Math.min(maximum, value));
-        } catch (NumberFormatException exception) {
-            return fallback;
-        }
-    }
 }

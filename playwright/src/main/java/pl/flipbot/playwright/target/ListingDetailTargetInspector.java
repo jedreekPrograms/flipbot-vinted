@@ -3,17 +3,14 @@ package pl.flipbot.playwright.target;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
 import com.microsoft.playwright.options.WaitUntilState;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
 import pl.flipbot.playwright.verification.HumanVerificationHandler;
-
-import java.text.Normalizer;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
 
 @Slf4j
 public class ListingDetailTargetInspector {
@@ -44,8 +41,6 @@ public class ListingDetailTargetInspector {
 
     private final BotContext context;
     private final ListingTargetMatcher listingTargetMatcher;
-    private final VintedModelTargetGuard vintedModelTargetGuard =
-            new VintedModelTargetGuard();
     private final VintedItemIdentityReader itemIdentityReader =
             new VintedItemIdentityReader();
     private final HumanVerificationHandler humanVerificationHandler =
@@ -102,115 +97,6 @@ public class ListingDetailTargetInspector {
         return matchesSearchQueryTarget(listing, configuration);
     }
 
-    private boolean matchesVintedModelTarget(
-            ListingResponseDto listing,
-            BotConfigurationDto configuration
-    ) {
-        VintedItemIdentityReader.ItemIdentity identity =
-                getOrLoadIdentity(listing);
-
-        String configuredBrand = normalizeIdentity(configuration.getBrand());
-        String observedBrand = normalizeIdentity(identity.brand());
-
-        if (!configuredBrand.isBlank()
-                && !observedBrand.isBlank()
-                && !configuredBrand.equals(observedBrand)) {
-            log.error(
-                    "[TARGET DETAIL] Marketplace listing {} is wrong brand for bot target. Configured brand='{}', structured Vinted brand='{}'.",
-                    listing.listingId(),
-                    configuration.getBrand(),
-                    identity.brand()
-            );
-            return false;
-        }
-
-        if (identity.hasStructuredModel()) {
-            Optional<String> mismatch =
-                    vintedModelTargetGuard.findConclusiveMismatch(
-                            configuration.getModel(),
-                            identity.model()
-                    );
-
-            if (mismatch.isPresent()) {
-                log.error(
-                        "[TARGET DETAIL] Marketplace listing {} failed structured Vinted model verification. Configured model='{}', structured model='{}'. Reason: {}",
-                        listing.listingId(),
-                        configuration.getModel(),
-                        identity.model(),
-                        mismatch.get()
-                );
-                return false;
-            }
-
-            if (vintedModelTargetGuard.provesConfiguredModel(
-                    configuration.getModel(),
-                    identity.model()
-            )) {
-                log.info(
-                        "[TARGET DETAIL] Marketplace listing {} positively verified from structured Vinted identity. Brand='{}', model='{}', h1='{}'.",
-                        listing.listingId(),
-                        identity.brand(),
-                        identity.model(),
-                        identity.title()
-                );
-                return true;
-            }
-
-            throw new IllegalStateException(
-                    "Structured Vinted model field could not positively prove configured model '"
-                            + configuration.getModel()
-                            + "' for marketplace listing "
-                            + listing.listingId()
-                            + ". Structured model='"
-                            + identity.model()
-                            + "'. Failing closed for this cycle."
-            );
-        }
-
-        ListingTargetAssessment titleAssessment =
-                listingTargetMatcher.assessVisibleText(
-                        identity.title(),
-                        configuration
-                );
-
-        if (titleAssessment == ListingTargetAssessment.MATCH) {
-            log.info(
-                    "[TARGET DETAIL] Marketplace listing {} has no readable structured model field, but live h1 positively proves configured Vinted model '{}'. h1='{}'.",
-                    listing.listingId(),
-                    configuration.getModel(),
-                    identity.title()
-            );
-            return true;
-        }
-
-        if (titleAssessment == ListingTargetAssessment.MISMATCH) {
-            log.error(
-                    "[TARGET DETAIL] Marketplace listing {} has no readable structured model field and live h1 conclusively conflicts with configured Vinted model '{}'. h1='{}'.",
-                    listing.listingId(),
-                    configuration.getModel(),
-                    identity.title()
-            );
-            return false;
-        }
-
-        /*
-         * Generic titles such as "Tablet z wyświetlaczem do wymiany" must not
-         * be treated as proof of Galaxy S25. If Vinted's structured Model field
-         * cannot be read, keep the listing DISCOVERED and retry later instead
-         * of either sending an unsafe offer or permanently misclassifying it.
-         */
-        throw new IllegalStateException(
-                "Live Vinted item identity is ambiguous for configured model '"
-                        + configuration.getModel()
-                        + "' and marketplace listing "
-                        + listing.listingId()
-                        + ". h1='"
-                        + identity.title()
-                        + "', structured brand='"
-                        + identity.brand()
-                        + "', structured model is unavailable. Failing closed for this cycle."
-        );
-    }
 
     private boolean matchesSearchQueryTarget(
             ListingResponseDto listing,
@@ -441,18 +327,6 @@ public class ListingDetailTargetInspector {
         return cached;
     }
 
-    private String normalizeIdentity(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        return Normalizer.normalize(value, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", " ")
-                .trim()
-                .replaceAll("\\s+", " ");
-    }
 
     private record CachedIdentity(
             VintedItemIdentityReader.ItemIdentity identity,

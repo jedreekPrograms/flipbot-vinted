@@ -1,5 +1,6 @@
 package pl.flipbot.playwright.negotiation;
 
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
@@ -8,9 +9,11 @@ import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.negotiation.conversation.ConversationReader;
+import pl.flipbot.playwright.negotiation.next.NextOfferPreparation;
+import pl.flipbot.playwright.negotiation.next.NextOfferWorkflow;
+import pl.flipbot.playwright.session.VintedAuthenticationRequiredException;
 import pl.flipbot.playwright.target.VintedRateLimitException;
-
-import java.util.List;
 
 @Slf4j
 public class ExistingNegotiationProcessor {
@@ -18,16 +21,14 @@ public class ExistingNegotiationProcessor {
     private final BotContext context;
     private final ListingClient listingClient;
     private final ListingStatusUpdater listingStatusUpdater;
-    private final NegotiationConversationProcessor conversationProcessor;
+    private final ConversationReader conversationProcessor;
     private final ConversationAvailabilityDetector availabilityDetector;
     private final ConversationActivityDetector activityDetector;
-    private final ConversationContactAvailabilityDetector contactAvailabilityDetector;
-    private final ConsecutiveContactUnavailableTracker contactUnavailableTracker;
+    private final NegotiationContactGuard contactGuard;
     private final NegotiationDecisionService decisionService;
     private final PendingNegotiationPolicy pendingPolicy;
-    private final TerminalNegotiationRecoveryPolicy terminalRecoveryPolicy;
-    private final NextNegotiationStepExecutor nextStepExecutor;
-    private final PreparedNextStepCoordinator preparedNextStepCoordinator;
+    private final NextOfferPreparation nextStepExecutor;
+    private final NextOfferWorkflow preparedNextStepCoordinator;
     private final ExistingNegotiationSupport support;
     private final boolean realNextStepsEnabled;
     private final int maxRealNextStepsPerRun;
@@ -43,16 +44,15 @@ public class ExistingNegotiationProcessor {
         this.context = context;
         this.listingClient = listingClient;
         this.listingStatusUpdater = listingStatusUpdater;
-        this.conversationProcessor = new NegotiationConversationProcessor(context);
+        this.conversationProcessor = new ConversationReader(context);
         this.availabilityDetector = new ConversationAvailabilityDetector(context);
         this.activityDetector = new ConversationActivityDetector(context);
-        this.contactAvailabilityDetector = new ConversationContactAvailabilityDetector(context);
-        this.contactUnavailableTracker = new ConsecutiveContactUnavailableTracker();
+        this.contactGuard = new NegotiationContactGuard(context, listingStatusUpdater,
+                new ConversationContactAvailabilityDetector(context), new ConsecutiveContactUnavailableTracker());
         this.decisionService = new NegotiationDecisionService();
         this.pendingPolicy = new PendingNegotiationPolicy();
-        this.terminalRecoveryPolicy = new TerminalNegotiationRecoveryPolicy();
-        this.nextStepExecutor = new NextNegotiationStepExecutor(context);
-        this.preparedNextStepCoordinator = new PreparedNextStepCoordinator(context, offerQuotaClient);
+        this.nextStepExecutor = new NextOfferPreparation(context);
+        this.preparedNextStepCoordinator = new NextOfferWorkflow(context, offerQuotaClient);
         this.support = new ExistingNegotiationSupport(
                 context,
                 listingClient,
@@ -83,133 +83,12 @@ public class ExistingNegotiationProcessor {
 
         List<ListingResponseDto> recoveryCandidates =
                 listingClient.getNegotiationRecoveryCandidates(botId);
-        inspectTerminalRecoveryCandidates(recoveryCandidates);
+        new TerminalConversationRecovery(context, listingClient, listingStatusUpdater,
+                conversationProcessor, support, contactGuard).inspect(recoveryCandidates);
 
         return sentAny;
     }
 
-    private void inspectTerminalRecoveryCandidates(
-            List<ListingResponseDto> candidates
-    ) {
-        if (candidates == null || candidates.isEmpty()) {
-            return;
-        }
-
-        BotConfigurationDto currentProductConfiguration =
-                context.getBot().getConfiguration();
-        if (currentProductConfiguration == null) {
-            throw new IllegalStateException("Bot configuration is missing");
-        }
-
-        log.info(
-                "[NEGOTIATION RECOVERY] Inspecting {} recent terminal conversation candidate(s) read-only before active negotiations.",
-                candidates.size()
-        );
-
-        for (ListingResponseDto listing : candidates) {
-            BotConfigurationDto configuration =
-                    NegotiationStrategyConfigurationResolver.resolve(
-                            currentProductConfiguration,
-                            listing.negotiationStrategySnapshot()
-                    );
-
-            context.getBot().setConfiguration(configuration);
-            boolean transitioned = false;
-
-            try {
-                NegotiationConversationSnapshot snapshot =
-                        conversationProcessor.inspectRecoverySnapshot(listing);
-
-                TerminalNegotiationRecoveryDecision recovery =
-                        terminalRecoveryPolicy.decide(
-                                listing,
-                                snapshot,
-                                configuration
-                        );
-
-                switch (recovery.action()) {
-                    case KEEP_TERMINAL -> log.info(
-                            "[NEGOTIATION RECOVERY] Listing {} stays {}. Live result={}. Reason: {}",
-                            listing.listingId(),
-                            listing.status(),
-                            snapshot.result(),
-                            recovery.reason()
-                    );
-
-                    case REOPEN_NEGOTIATING -> {
-                        ListingResponseDto reopened =
-                                listingClient.reopenNegotiationForRecovery(
-                                        context.getBot().getId(),
-                                        listing.id(),
-                                        recovery.awaitingSellerResponse(),
-                                        recovery.reason()
-                                );
-                        transitioned = true;
-
-                        log.warn(
-                                "[NEGOTIATION RECOVERY] Listing {} recovered from {} to {} at step {}. No offer was sent by the recovery layer.",
-                                reopened.listingId(),
-                                listing.status(),
-                                reopened.status(),
-                                reopened.currentStep()
-                        );
-                    }
-
-                    case MARK_ACTION_REQUIRED -> {
-                        ListingResponseDto updated =
-                                listingStatusUpdater.markActionRequired(
-                                        listing,
-                                        recovery.negotiationDecision()
-                                );
-                        transitioned = true;
-                        clearContactUnavailableSuspicion(listing);
-
-                        log.warn(
-                                "[NEGOTIATION RECOVERY] Fresh seller decision recovered from terminal history. Listing {} changed from {} to ACTION_REQUIRED at price {}. No buyer offer was sent. Reason: {}",
-                                updated.listingId(),
-                                listing.status(),
-                                updated.currentPrice(),
-                                recovery.reason()
-                        );
-                    }
-                }
-            } catch (VintedRateLimitException exception) {
-                throw exception;
-            } catch (Exception exception) {
-                log.error(
-                        "[NEGOTIATION RECOVERY] Failed to inspect terminal backend listing {}, marketplace listing {}, conversation {}: {}",
-                        listing.id(),
-                        listing.listingId(),
-                        listing.conversationId(),
-                        support.friendlyError(exception)
-                );
-                log.trace(
-                        "[NEGOTIATION RECOVERY] Full exception for backend listing {}.",
-                        listing.id(),
-                        exception
-                );
-            } finally {
-                if (!transitioned) {
-                    try {
-                        listingClient.markNegotiationRecoveryChecked(
-                                context.getBot().getId(),
-                                listing.id()
-                        );
-                    } catch (Exception exception) {
-                        log.warn(
-                                "[NEGOTIATION RECOVERY] Could not persist recovery throttle for backend listing {}: {}",
-                                listing.id(),
-                                support.friendlyError(exception)
-                        );
-                    }
-                }
-
-                context.getBot().setConfiguration(
-                        currentProductConfiguration
-                );
-            }
-        }
-    }
 
     private boolean inspectExistingNegotiations(List<ListingResponseDto> listings) {
         if (listings.isEmpty()) {
@@ -279,7 +158,7 @@ public class ExistingNegotiationProcessor {
                         || snapshot.result() == NegotiationConversationResult.UNKNOWN
                         || snapshot.result() == NegotiationConversationResult.REJECTED
                         || snapshot.result() == NegotiationConversationResult.CANCELLED)
-                        && closeIfNegotiationControlsUnavailable(listing)) {
+                        && contactGuard.shouldSkip(listing)) {
                     continue;
                 }
 
@@ -348,11 +227,13 @@ public class ExistingNegotiationProcessor {
                     }
                     continue;
                 } else {
-                    stepSent = handleDecision(
-                            listing,
-                            snapshot,
-                            decisionService.decide(listing, snapshot, configuration)
-                    );
+                    NegotiationDecision decision = decisionService.decide(listing, snapshot, configuration);
+                    if (snapshot.result() == NegotiationConversationResult.SELLER_COUNTER_OFFER
+                            && decision.type() == NegotiationDecisionType.WAIT
+                            && contactGuard.shouldSkip(listing)) {
+                        continue;
+                    }
+                    stepSent = handleDecision(listing, snapshot, decision);
                 }
 
                 if (stepSent) {
@@ -366,7 +247,7 @@ public class ExistingNegotiationProcessor {
                         break;
                     }
                 }
-            } catch (VintedRateLimitException exception) {
+            } catch (VintedRateLimitException | VintedAuthenticationRequiredException exception) {
                 /*
                  * A rate/session block is bot-wide, not a broken individual
                  * conversation. Let BotWorkerSlot pause every scheduled job.
@@ -471,7 +352,7 @@ public class ExistingNegotiationProcessor {
          * also covers SELLER_COUNTER_OFFER paths that legitimately bypass the
          * generic missing-offer preflight until a new buyer offer is needed.
          */
-        if (closeIfNegotiationControlsUnavailable(listing)) {
+        if (contactGuard.shouldSkip(listing)) {
             return false;
         }
 
@@ -485,7 +366,7 @@ public class ExistingNegotiationProcessor {
                 listing.listingId()
         );
 
-        NextStepPreparationResult result = nextStepExecutor.prepareDryRun(
+        NextStepPreparationResult result = nextStepExecutor.prepare(
                 listing,
                 decision.nextStep()
         );
@@ -508,85 +389,7 @@ public class ExistingNegotiationProcessor {
         return false;
     }
 
-    private boolean closeIfNegotiationControlsUnavailable(
-            ListingResponseDto listing
-    ) {
-        ConversationContactAssessment contactAssessment =
-                contactAvailabilityDetector.inspect(listing);
-
-        return switch (contactAssessment.state()) {
-            case AVAILABLE -> {
-                clearContactUnavailableSuspicion(listing);
-                yield false;
-            }
-            case OFFER_ACTION_UNAVAILABLE -> {
-                /*
-                 * A conversation may still allow ordinary chat after the item
-                 * has been sold/removed. For an automated negotiation, an
-                 * absent/disabled "make offer" action means there is no longer
-                 * an actionable negotiation to keep in the active pool.
-                 */
-                ListingResponseDto updated =
-                        listingStatusUpdater.markNegotiationUnavailable(listing);
-                clearContactUnavailableSuspicion(listing);
-                log.warn(
-                        "[CONTACT AVAILABILITY] Listing {} changed from NEGOTIATING to UNAVAILABLE because Vinted exposes no enabled negotiation offer action, even though ordinary messaging may still be available. Reason: {}",
-                        updated.listingId(),
-                        contactAssessment.reason()
-                );
-                yield true;
-            }
-            case CONFIRMED_UNAVAILABLE -> {
-                ListingResponseDto updated =
-                        listingStatusUpdater.markContactUnavailable(listing);
-                clearContactUnavailableSuspicion(listing);
-                log.warn(
-                        "[CONTACT AVAILABILITY] Listing {} changed to CONTACT_UNAVAILABLE because Vinted exposed explicit contact-disabled/block evidence. Reason: {}",
-                        updated.listingId(),
-                        contactAssessment.reason()
-                );
-                yield true;
-            }
-            case SUSPECTED_UNAVAILABLE -> {
-                int consecutiveChecks =
-                        contactUnavailableTracker.recordSuspected(
-                                context.getBot().getId(),
-                                listing.listingId()
-                        );
-
-                if (contactUnavailableTracker.shouldClose(
-                        consecutiveChecks
-                )) {
-                    ListingResponseDto updated =
-                            listingStatusUpdater.markNegotiationUnavailable(
-                                    listing
-                            );
-                    clearContactUnavailableSuspicion(listing);
-                    log.warn(
-                            "[CONTACT AVAILABILITY] Listing {} changed from NEGOTIATING to UNAVAILABLE after {} consecutive checks with no usable negotiation or message controls. Last observation: {}",
-                            updated.listingId(),
-                            consecutiveChecks,
-                            contactAssessment.reason()
-                    );
-                    yield true;
-                }
-
-                log.warn(
-                        "[CONTACT AVAILABILITY] Listing {} temporarily remains NEGOTIATING because the conversation controls are ambiguous. Observation count={}/{}. No quota or offer will be attempted from this check. Last observation: {}",
-                        listing.listingId(),
-                        consecutiveChecks,
-                        ConsecutiveContactUnavailableTracker.REQUIRED_CONSECUTIVE_SUSPECTED_CHECKS,
-                        contactAssessment.reason()
-                );
-                yield false;
-            }
-        };
-    }
-
     private void clearContactUnavailableSuspicion(ListingResponseDto listing) {
-        contactUnavailableTracker.clear(
-                context.getBot().getId(),
-                listing.listingId()
-        );
+        contactGuard.clear(listing);
     }
 }

@@ -6,7 +6,6 @@ import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
 import pl.flipbot.bot.dto.BotPlaywrightResponse;
 import pl.flipbot.bot.dto.BotResponse;
-import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.listing.ListingRepository;
 import pl.flipbot.listing.ListingStatus;
 
@@ -74,22 +73,4 @@ public class BotMapper {
 
     }
 
-    public RunningBotResponse mapRunning(Bot bot) {
-
-        return mapRunning(
-                bot,
-                false
-        );
-    }
-
-    public RunningBotResponse mapRunning(
-            Bot bot,
-            boolean hasActiveNegotiations
-    ) {
-
-        return RunningBotResponse.builder()
-                .id(bot.getId())
-                .hasActiveNegotiations(hasActiveNegotiations)
-                .build();
-    }
 }

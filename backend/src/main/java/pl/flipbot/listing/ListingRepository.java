@@ -1,29 +1,19 @@
 package pl.flipbot.listing;
 
 import jakarta.persistence.LockModeType;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Lock;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface ListingRepository
-        extends JpaRepository<Listing, Long> {
-
-    boolean existsByBotIdAndListingId(
-            Long botId,
-            String listingId
-    );
-
-    Optional<Listing> findByBotIdAndListingId(
-            Long botId,
-            String listingId
-    );
+        extends JpaRepository<Listing, Long>, JpaSpecificationExecutor<Listing> {
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
@@ -54,16 +44,6 @@ public interface ListingRepository
             @Param("botId") Long botId
     );
 
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("""
-            select listing
-            from Listing listing
-            where listing.id = :listingId
-            """)
-    Optional<Listing> findByIdForUpdate(
-            @Param("listingId") Long listingId
-    );
-
     @Query("""
             select listing
             from Listing listing
@@ -72,10 +52,6 @@ public interface ListingRepository
             """)
     List<Listing> findByStatusInOrderByIdAsc(
             @Param("statuses") Collection<ListingStatus> statuses
-    );
-
-    List<Listing> findByBotId(
-            Long botId
     );
 
     List<Listing> findByBotIdAndStatusOrderByIdAsc(
@@ -182,3 +158,4 @@ public interface ListingRepository
     );
 
 }
+//

@@ -1,10 +1,9 @@
 package pl.flipbot.playwright.worker;
 
-import org.junit.Test;
-import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
-
 import java.util.Map;
 import java.util.Set;
+import org.junit.Test;
+import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -17,7 +16,7 @@ public class BotRunSchedulerPollingTest {
     @Test
     public void pollReturnsReadyCurrentTask() throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.reconcileRunningBots(Map.of(1L, true));
@@ -36,7 +35,7 @@ public class BotRunSchedulerPollingTest {
     @Test
     public void readyWorkHintTracksOnlyAlreadyDueTasks() throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.reconcileRunningBots(Map.of(1L, true));
@@ -65,11 +64,11 @@ public class BotRunSchedulerPollingTest {
     @Test
     public void pollTimesOutWhileAllFutureJobsAreStillDelayed() throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.reconcileRunningBots(Map.of(1L, true));
-            ScheduledBotTask first = scheduler.takeNext();
+            ScheduledBotTask first = scheduler.pollNext(1_000L);
 
             scheduler.completeRun(
                     first.botId(),
@@ -91,7 +90,6 @@ public class BotRunSchedulerPollingTest {
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
         BotRunScheduler scheduler = new BotRunScheduler(
-                config(),
                 telemetry,
                 new CatalogConcurrencyConfig(1, 250L)
         );
@@ -152,7 +150,7 @@ public class BotRunSchedulerPollingTest {
     public void pausedPreviewBotCannotBeClaimedAndResumesWithoutLosingDueWork()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.setPausedBotIds(Set.of(7L));
@@ -181,7 +179,7 @@ public class BotRunSchedulerPollingTest {
     public void previewPauseLetsAlreadyWorkingJobFinishButQueuesNothingUntilResume()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.reconcileRunningBots(Map.of(8L, true));
@@ -221,7 +219,7 @@ public class BotRunSchedulerPollingTest {
     public void livePreviewOwnerKeepsRunningNormalDueJobsWhileGenericWorkersStayOut()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.setPausedBotIds(Set.of(9L));
@@ -267,7 +265,7 @@ public class BotRunSchedulerPollingTest {
     public void manualSessionInterventionMakesBlockedPreviewDueImmediatelyOnceRequested()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.setPausedBotIds(Set.of(12L));
@@ -316,7 +314,7 @@ public class BotRunSchedulerPollingTest {
     public void verifiedSessionRecoveryReleasesPreviewCooldownImmediately()
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
-        BotRunScheduler scheduler = new BotRunScheduler(config(), telemetry);
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
 
         try {
             scheduler.setPausedBotIds(Set.of(10L));
@@ -353,7 +351,6 @@ public class BotRunSchedulerPollingTest {
             throws Exception {
         NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
         BotRunScheduler scheduler = new BotRunScheduler(
-                config(),
                 telemetry,
                 new CatalogConcurrencyConfig(2, 50L)
         );
@@ -380,19 +377,65 @@ public class BotRunSchedulerPollingTest {
         }
     }
 
-    private WorkerRuntimeConfig config() {
-        return new WorkerRuntimeConfig(
-                1,
-                5L,
-                120L,
-                900L,
-                60L,
-                60L,
-                600L,
-                180L,
-                30L,
-                true
-        );
+    @Test
+    public void stoppedPausedBotCanStartAgainAfterPreviewCloses() throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
+        try {
+            scheduler.setPausedBotIds(Set.of(7L));
+            scheduler.reconcileRunningBots(Map.of(7L, false));
+            scheduler.reconcileRunningBots(Map.of());
+            scheduler.setPausedBotIds(Set.of());
+            scheduler.reconcileRunningBots(Map.of(7L, false));
+
+            ScheduledBotTask restarted = scheduler.pollNext(100L);
+            assertNotNull("START must enqueue work after a stopped idle preview", restarted);
+            assertEquals(Long.valueOf(7L), restarted.botId());
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void stoppingWorkingBotRetainsOwnershipUntilItsJobFinishes() throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
+        try {
+            scheduler.reconcileRunningBots(Map.of(7L, false));
+            ScheduledBotTask working = scheduler.pollNext(100L);
+            assertNotNull(working);
+            scheduler.reconcileRunningBots(Map.of());
+            assertTrue(scheduler.isWorking(7L));
+            scheduler.completeRun(7L, working.jobType(), 0L, false, false);
+            assertFalse(scheduler.isWorking(7L));
+            assertNull(scheduler.pollNext(10L));
+            scheduler.reconcileRunningBots(Map.of(7L, false));
+            assertNotNull(scheduler.pollNext(100L));
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
+    }
+
+    @Test
+    public void recoveryWhileWorkingCannotQueueASecondConcurrentJob() throws Exception {
+        NoOpTelemetryReporter telemetry = new NoOpTelemetryReporter();
+        BotRunScheduler scheduler = new BotRunScheduler(telemetry);
+        try {
+            scheduler.reconcileRunningBots(Map.of(7L, true));
+            ScheduledBotTask working = scheduler.pollNext(100L);
+            assertNotNull(working);
+            scheduler.wakeForManualSessionIntervention(7L);
+            scheduler.resumeAfterSessionRecovery(7L);
+            assertTrue(scheduler.isWorking(7L));
+            assertNull(scheduler.pollNext(10L));
+            scheduler.completeRun(7L, working.jobType(), 600_000L, false, true);
+            assertNotNull(scheduler.pollNext(100L));
+        } finally {
+            scheduler.shutdown();
+            telemetry.close();
+        }
     }
 
     private static final class NoOpTelemetryReporter

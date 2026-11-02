@@ -7,8 +7,6 @@ import org.springframework.web.bind.annotation.*;
 import pl.flipbot.negotiation.audit.dto.RealActionAuditResponse;
 import pl.flipbot.negotiation.audit.dto.UpsertRealActionAuditRequest;
 
-import java.util.List;
-
 @RestController
 @RequestMapping("/api/bots/{botId}")
 @RequiredArgsConstructor
@@ -31,12 +29,4 @@ public class RealActionAuditController {
         );
     }
 
-    @GetMapping("/real-action-audits")
-    public ResponseEntity<List<RealActionAuditResponse>> getForBot(
-            @PathVariable Long botId
-    ) {
-        return ResponseEntity.ok(
-                realActionAuditService.getForBot(botId)
-        );
-    }
 }

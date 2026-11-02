@@ -1,6 +1,7 @@
 package pl.flipbot.bot.runtime;
 
 import org.springframework.stereotype.Service;
+import pl.flipbot.exception.InvalidRequestException;
 
 import java.util.Collection;
 import java.util.HashSet;
@@ -45,7 +46,8 @@ public class BotSessionPreviewService {
 
     private void validateBotId(Long botId) {
         if (botId == null || botId <= 0L) {
-            throw new IllegalArgumentException("Bot ID must be positive.");
+            throw new InvalidRequestException("Bot ID must be positive.");
         }
     }
+    //
 }

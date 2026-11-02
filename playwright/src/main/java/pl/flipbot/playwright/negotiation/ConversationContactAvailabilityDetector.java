@@ -45,7 +45,7 @@ public class ConversationContactAvailabilityDetector {
         if (listing == null
                 || listing.conversationId() == null
                 || listing.conversationId().isBlank()) {
-            return ConversationContactAssessment.available(
+            return ConversationContactAssessment.inspectionUnavailable(
                     "No conversation is available to classify."
             );
         }
@@ -53,7 +53,7 @@ public class ConversationContactAvailabilityDetector {
         Page page = context.getPage();
 
         if (!isExpectedConversationOpen(page, listing.conversationId())) {
-            return ConversationContactAssessment.available(
+            return ConversationContactAssessment.inspectionUnavailable(
                     "The expected conversation is not open, so contact availability is not classified."
             );
         }
@@ -75,21 +75,14 @@ public class ConversationContactAvailabilityDetector {
                     signals.offerButtonVisible(),
                     signals.offerButtonEnabled(),
                     signals.messageInputVisible(),
-                    signals.messageInputEnabled(),
+                    signals.messageInputEditable(),
                     false
             );
             lastState = state;
 
             if (state == ConversationContactAssessment.State.AVAILABLE) {
                 return ConversationContactAssessment.available(
-                        "The enabled negotiation offer action is available. "
-                                + signals.describe()
-                );
-            }
-
-            if (state == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
-                return ConversationContactAssessment.offerActionUnavailable(
-                        "Messaging is available, but Vinted currently exposes no enabled negotiation offer action. "
+                        "The enabled negotiation offer action and message composer are available. "
                                 + signals.describe()
                 );
             }
@@ -104,6 +97,12 @@ public class ConversationContactAvailabilityDetector {
             }
         }
 
+        if (!hasLoadedConversationContent(page)) {
+            return ConversationContactAssessment.inspectionUnavailable(
+                    "The conversation content did not load; missing controls do not establish contact unavailability."
+            );
+        }
+
         if (lastState == ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE) {
             return ConversationContactAssessment.offerActionUnavailable(
                     "Messaging is available, but Vinted currently exposes no enabled negotiation offer action. "
@@ -112,8 +111,8 @@ public class ConversationContactAvailabilityDetector {
         }
 
         return ConversationContactAssessment.suspected(
-                "The expected conversation is loaded, but neither a usable message composer "
-                        + "nor an enabled offer action became available after "
+                "The expected conversation is loaded, but a usable message composer "
+                        + "and enabled offer action were not both available after "
                         + (SETTLE_ATTEMPTS * SETTLE_DELAY_MS / 1000.0)
                         + " seconds. "
                         + lastSignals.describe()
@@ -124,18 +123,18 @@ public class ConversationContactAvailabilityDetector {
             boolean offerButtonVisible,
             boolean offerButtonEnabled,
             boolean messageInputVisible,
-            boolean messageInputEnabled,
+            boolean messageInputEditable,
             boolean explicitUnavailableSignal
     ) {
         if (explicitUnavailableSignal) {
             return ConversationContactAssessment.State.CONFIRMED_UNAVAILABLE;
         }
 
-        if (offerButtonVisible && offerButtonEnabled) {
+        if (offerButtonVisible && offerButtonEnabled && messageInputVisible && messageInputEditable) {
             return ConversationContactAssessment.State.AVAILABLE;
         }
 
-        if (messageInputVisible && messageInputEnabled) {
+        if (messageInputVisible && messageInputEditable) {
             return ConversationContactAssessment.State.OFFER_ACTION_UNAVAILABLE;
         }
 
@@ -157,15 +156,34 @@ public class ConversationContactAvailabilityDetector {
         boolean offerButtonEnabled = offerButtonVisible
                 && isEnabledSafely(offerButton);
         boolean messageInputVisible = isVisibleSafely(messageInput);
-        boolean messageInputEnabled = messageInputVisible
-                && isEnabledSafely(messageInput);
+        boolean messageInputEditable = messageInputVisible
+                && isEditableSafely(messageInput);
 
         return new ContactSignals(
                 offerButtonVisible,
                 offerButtonEnabled,
                 messageInputVisible,
-                messageInputEnabled
+                messageInputEditable
         );
+    }
+
+    private boolean hasLoadedConversationContent(Page page) {
+        Locator content = page.getByTestId("conversation-content").first();
+        if (!isVisibleSafely(content)) {
+            return false;
+        }
+        Locator messages = content.locator("[data-testid='conversation-message'], "
+                + "[data-testid='conversation-message--status-message'], "
+                + "[data-testid='offer-request-current-price-label'], "
+                + "[data-testid='offer-current-price-label'], [data-testid='offer-status-title']");
+        try {
+            for (int index = 0; index < messages.count(); index++) {
+                if (messages.nth(index).isVisible()) return true;
+            }
+        } catch (Exception exception) {
+            return false;
+        }
+        return false;
     }
 
     private String findExplicitUnavailableReason(Page page) {
@@ -230,10 +248,12 @@ public class ConversationContactAvailabilityDetector {
             Page page,
             String conversationId
     ) {
-        String url = page.url();
-        return url != null
-                && !url.isBlank()
-                && url.contains("/inbox/" + conversationId);
+        try {
+            return new ConversationIdentityResolver().assess(conversationId, page.url())
+                    .matchesExpectedConversation();
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 
     private boolean isVisibleSafely(Locator locator) {
@@ -260,22 +280,31 @@ public class ConversationContactAvailabilityDetector {
         return Normalizer.normalize(value, Normalizer.Form.NFD)
                 .replaceAll("\\p{M}+", "")
                 .toLowerCase(Locale.ROOT)
+                .replace('ł', 'l')
                 .replace('’', '\'')
                 .replaceAll("\\s+", " ")
                 .trim();
+    }
+
+    private boolean isEditableSafely(Locator locator) {
+        try {
+            return locator.isEditable();
+        } catch (Exception exception) {
+            return false;
+        }
     }
 
     private record ContactSignals(
             boolean offerButtonVisible,
             boolean offerButtonEnabled,
             boolean messageInputVisible,
-            boolean messageInputEnabled
+            boolean messageInputEditable
     ) {
         String describe() {
             return "offerButtonVisible=" + offerButtonVisible
                     + ", offerButtonEnabled=" + offerButtonEnabled
                     + ", messageInputVisible=" + messageInputVisible
-                    + ", messageInputEnabled=" + messageInputEnabled;
+                    + ", messageInputEditable=" + messageInputEditable;
         }
     }
 }

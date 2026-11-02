@@ -22,7 +22,7 @@ public class MarketListingPublishedAtResolverScriptTest {
 
     @Test
     public void detailPageExtractionPrioritizesConfirmedUploadDateFieldBeforeFallbacks() {
-        String script = MarketListingPublishedAtResolver.extractPublishedAtScript();
+        String script = MarketPublicationScripts.EXTRACT_PUBLISHED_AT_SCRIPT;
 
         String exactField = "item-attributes-upload_date";
         String exactValue = "[itemprop=\"upload_date\"]";

@@ -1,157 +1,39 @@
 package pl.flipbot.playwright.worker;
 
+import java.util.Map;
 import org.junit.Test;
 
-import java.util.Set;
-
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 public class ScheduledRealActionConfigTest {
-
-    @Test
-    public void controlledModeKeepsOneShotAndExplicitAllowlist() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(3L),
-                        true,
-                        false,
-                        false,
-                        false,
-                        false
-                );
-
-        assertFalse(config.productionModeEnabled());
-        assertTrue(config.firstOfferOneShotTestModeEnabled());
-        assertTrue(config.realOffersEnabledFor(3L));
-        assertTrue(config.realNextStepsEnabledFor(3L));
-        assertFalse(config.realOffersEnabledFor(4L));
+    @Test public void defaultAndLegacyFlagsCannotEnableContinuousSubmission() {
+        assertFalse(ScheduledRealActionConfig.parse(Map.of()).realOffersEnabledFor(3L));
+        assertFalse(ScheduledRealActionConfig.parse(Map.of(
+                "FLIPBOT_REAL_OFFERS_ENABLED", "true",
+                "FLIPBOT_REAL_ACTION_CONFIRM", "I_UNDERSTAND_REAL_ACTIONS"
+        )).realOffersEnabledFor(3L));
     }
 
-    @Test
-    public void productionModeCanArmAllRunningBots() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(),
-                        true,
-                        false,
-                        true,
-                        true,
-                        true
-                );
-
-        assertTrue(config.productionModeEnabled());
-        assertFalse(config.firstOfferOneShotTestModeEnabled());
-        assertTrue(config.realOffersEnabledFor(1L));
-        assertTrue(config.realNextStepsEnabledFor(999L));
-        assertFalse(config.realOffersEnabledFor(0L));
+    @Test public void explicitProductionModeSupportsAllRunningBotsAndIndependentActions() {
+        var config = ScheduledRealActionConfig.parse(Map.of("FLIPBOT_RUN_MODE", "PRODUCTION",
+                "FLIPBOT_REAL_NEXT_STEPS_ENABLED", "false"));
+        assertTrue(config.realOffersEnabledFor(3L));
+        assertFalse(config.realNextStepsEnabledFor(3L));
         assertFalse(config.realOffersEnabledFor(null));
+        assertFalse(config.realOffersEnabledFor(0L));
     }
 
-    @Test
-    public void productionModeCanStillUseExplicitAllowlist() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(3L, 7L),
-                        true,
-                        false,
-                        true,
-                        true,
-                        false
-                );
-
-        assertTrue(config.productionModeEnabled());
-        assertFalse(config.firstOfferOneShotTestModeEnabled());
+    @Test public void allowlistRestrictsBothActionTypes() {
+        var config = ScheduledRealActionConfig.parse(Map.of("FLIPBOT_RUN_MODE", "PRODUCTION",
+                "FLIPBOT_REAL_ACTION_BOT_IDS", "3,7"));
         assertTrue(config.realOffersEnabledFor(3L));
-        assertTrue(config.realOffersEnabledFor(7L));
+        assertTrue(config.realNextStepsEnabledFor(7L));
         assertFalse(config.realOffersEnabledFor(8L));
     }
 
-    @Test
-    public void productionModeFailsClosedWithoutSecondConfirmation() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(),
-                        true,
-                        false,
-                        true,
-                        false,
-                        true
-                );
-
-        assertFalse(config.productionModeEnabled());
-        assertTrue(config.firstOfferOneShotTestModeEnabled());
-        assertFalse(config.realOffersEnabledFor(3L));
-        assertFalse(config.realNextStepsEnabledFor(3L));
-    }
-
-    @Test
-    public void allowAllRunningBotsFailsClosedOutsideProductionMode() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(),
-                        true,
-                        false,
-                        false,
-                        false,
-                        true
-                );
-
-        assertFalse(config.productionModeEnabled());
-        assertTrue(config.firstOfferOneShotTestModeEnabled());
-        assertFalse(config.realOffersEnabledFor(3L));
-    }
-
-    @Test
-    public void preflightNeverEnablesRealSubmission() {
-        ScheduledRealActionConfig config =
-                config(
-                        true,
-                        true,
-                        Set.of(),
-                        true,
-                        true,
-                        true,
-                        true,
-                        true
-                );
-
-        assertFalse(config.productionModeEnabled());
-        assertTrue(config.realOffersRequestedFor(3L));
-        assertTrue(config.realNextStepsRequestedFor(3L));
-        assertFalse(config.realOffersEnabledFor(3L));
-        assertFalse(config.realNextStepsEnabledFor(3L));
-    }
-
-    private ScheduledRealActionConfig config(
-            boolean realOffersRequested,
-            boolean realNextStepsRequested,
-            Set<Long> allowedBotIds,
-            boolean confirmationValid,
-            boolean preflightOnly,
-            boolean productionModeRequested,
-            boolean productionConfirmationValid,
-            boolean allowAllRunningBotsRequested
-    ) {
-        return new ScheduledRealActionConfig(
-                realOffersRequested,
-                realNextStepsRequested,
-                allowedBotIds,
-                confirmationValid,
-                preflightOnly,
-                productionModeRequested,
-                productionConfirmationValid,
-                allowAllRunningBotsRequested
-        );
+    @Test public void invalidModeOrScopeFailsBeforeAnyBrowserAction() {
+        assertThrows(IllegalArgumentException.class, () -> ScheduledRealActionConfig.parse(Map.of("FLIPBOT_RUN_MODE", "typo")));
+        assertThrows(IllegalArgumentException.class, () -> ScheduledRealActionConfig.parse(Map.of("FLIPBOT_REAL_ACTION_BOT_IDS", "3,")));
+        assertThrows(IllegalArgumentException.class, () -> ScheduledRealActionConfig.parse(Map.of("FLIPBOT_REAL_ACTION_BOT_IDS", "0")));
     }
 }

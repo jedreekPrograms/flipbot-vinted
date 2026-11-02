@@ -1,3 +1,4 @@
+import { getErrorMessage } from "../../../shared/errorMessage";
 import {
     useCallback,
     useEffect,
@@ -131,17 +132,4 @@ export function useActionRequiredListings():
         reload:
             loadListings,
     };
-}
-
-function getErrorMessage(
-    error: unknown,
-    fallbackMessage: string,
-): string {
-    if (
-        error instanceof Error
-    ) {
-        return error.message;
-    }
-
-    return fallbackMessage;
 }

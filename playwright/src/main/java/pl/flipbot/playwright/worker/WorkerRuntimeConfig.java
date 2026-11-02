@@ -1,14 +1,14 @@
 package pl.flipbot.playwright.worker;
 
-import lombok.extern.slf4j.Slf4j;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.booleanValue;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.intValue;
+import static pl.flipbot.playwright.util.RuntimeEnvironment.longValue;
 
-@Slf4j
 public record WorkerRuntimeConfig(
         int workerCount,
         long syncIntervalSeconds,
         long negotiationCheckIntervalSeconds,
         long catalogScanIntervalSeconds,
-        long priceProbeIntervalSeconds,
         long failureDelaySeconds,
         long rateLimitDelaySeconds,
         long browserIdleTimeoutSeconds,
@@ -22,7 +22,6 @@ public record WorkerRuntimeConfig(
     private static final long DEFAULT_SYNC_INTERVAL_SECONDS = 1L;
     private static final long DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS = 120L;
     private static final long DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS = 15L * 60L;
-    private static final long DEFAULT_PRICE_PROBE_INTERVAL_SECONDS = 60L;
     private static final long DEFAULT_FAILURE_DELAY_SECONDS = 60L;
     private static final long DEFAULT_RATE_LIMIT_DELAY_SECONDS = 10L * 60L;
     private static final long DEFAULT_BROWSER_IDLE_TIMEOUT_SECONDS = 180L;
@@ -32,61 +31,55 @@ public record WorkerRuntimeConfig(
     public static WorkerRuntimeConfig fromEnvironment() {
 
         return new WorkerRuntimeConfig(
-                readInt(
+                intValue(
                         "FLIPBOT_WORKER_COUNT",
                         DEFAULT_WORKER_COUNT,
                         1,
                         MAX_WORKER_COUNT
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_SYNC_INTERVAL_SECONDS",
                         DEFAULT_SYNC_INTERVAL_SECONDS,
                         1L,
                         60L
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_NEGOTIATION_CHECK_INTERVAL_SECONDS",
                         DEFAULT_NEGOTIATION_CHECK_INTERVAL_SECONDS,
                         30L,
                         60L * 60L
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS",
                         DEFAULT_CATALOG_SCAN_INTERVAL_SECONDS,
                         60L,
                         24L * 60L * 60L
                 ),
-                readLong(
-                        "FLIPBOT_PRICE_PROBE_INTERVAL_SECONDS",
-                        DEFAULT_PRICE_PROBE_INTERVAL_SECONDS,
-                        30L,
-                        24L * 60L * 60L
-                ),
-                readLong(
+                longValue(
                         "FLIPBOT_FAILURE_RETRY_SECONDS",
                         DEFAULT_FAILURE_DELAY_SECONDS,
                         1L,
                         24L * 60L * 60L
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_RATE_LIMIT_RETRY_SECONDS",
                         DEFAULT_RATE_LIMIT_DELAY_SECONDS,
                         1L,
                         24L * 60L * 60L
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_BROWSER_IDLE_TIMEOUT_SECONDS",
                         DEFAULT_BROWSER_IDLE_TIMEOUT_SECONDS,
                         30L,
                         60L * 60L
                 ),
-                readLong(
+                longValue(
                         "FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS",
                         DEFAULT_SHUTDOWN_TIMEOUT_SECONDS,
                         1L,
                         300L
                 ),
-                readBoolean(
+                booleanValue(
                         "FLIPBOT_SCHEDULER_HEADLESS",
                         DEFAULT_SCHEDULER_HEADLESS
                 )
@@ -99,112 +92,7 @@ public record WorkerRuntimeConfig(
         return switch (jobType) {
             case NEGOTIATION_CHECK -> negotiationCheckIntervalSeconds;
             case CATALOG_SCAN -> catalogScanIntervalSeconds;
-            case PRICE_PROBE -> priceProbeIntervalSeconds;
         };
     }
 
-    private static int readInt(
-            String environmentName,
-            int defaultValue,
-            int minimum,
-            int maximum
-    ) {
-
-        String rawValue = System.getenv(environmentName);
-
-        if (rawValue == null || rawValue.isBlank()) {
-            return defaultValue;
-        }
-
-        try {
-            int parsedValue = Integer.parseInt(rawValue.trim());
-
-            if (parsedValue < minimum || parsedValue > maximum) {
-                throw new IllegalArgumentException(
-                        "Value is outside allowed range "
-                                + minimum
-                                + ".."
-                                + maximum
-                );
-            }
-
-            return parsedValue;
-
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "Invalid {}='{}'. Using default {}.",
-                    environmentName,
-                    rawValue,
-                    defaultValue
-            );
-
-            return defaultValue;
-        }
-    }
-
-    private static long readLong(
-            String environmentName,
-            long defaultValue,
-            long minimum,
-            long maximum
-    ) {
-
-        String rawValue = System.getenv(environmentName);
-
-        if (rawValue == null || rawValue.isBlank()) {
-            return defaultValue;
-        }
-
-        try {
-            long parsedValue = Long.parseLong(rawValue.trim());
-
-            if (parsedValue < minimum || parsedValue > maximum) {
-                throw new IllegalArgumentException(
-                        "Value is outside allowed range "
-                                + minimum
-                                + ".."
-                                + maximum
-                );
-            }
-
-            return parsedValue;
-
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "Invalid {}='{}'. Using default {}.",
-                    environmentName,
-                    rawValue,
-                    defaultValue
-            );
-
-            return defaultValue;
-        }
-    }
-
-    private static boolean readBoolean(
-            String environmentName,
-            boolean defaultValue
-    ) {
-        String rawValue = System.getenv(environmentName);
-
-        if (rawValue == null || rawValue.isBlank()) {
-            return defaultValue;
-        }
-
-        String normalized = rawValue.trim().toLowerCase();
-
-        return switch (normalized) {
-            case "true", "1", "yes", "y", "on" -> true;
-            case "false", "0", "no", "n", "off" -> false;
-            default -> {
-                log.warn(
-                        "Invalid {}='{}'. Using default {}.",
-                        environmentName,
-                        rawValue,
-                        defaultValue
-                );
-                yield defaultValue;
-            }
-        };
-    }
 }

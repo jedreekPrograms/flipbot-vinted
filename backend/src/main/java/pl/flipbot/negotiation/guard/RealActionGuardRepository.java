@@ -1,9 +1,8 @@
 package pl.flipbot.negotiation.guard;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface RealActionGuardRepository
         extends JpaRepository<RealActionGuard, Long> {
@@ -12,5 +11,4 @@ public interface RealActionGuardRepository
 
     Optional<RealActionGuard> findByRequestId(UUID requestId);
 
-    void deleteByListing_Id(Long listingId);
 }

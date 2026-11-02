@@ -21,5 +21,4 @@ public interface MarketModelScanStateRepository
             @Param("modelId") Long modelId
     );
 
-    long countByBaselineCompleteAtIsNotNull();
 }

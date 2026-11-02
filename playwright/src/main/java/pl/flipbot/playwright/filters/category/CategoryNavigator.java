@@ -3,7 +3,7 @@ package pl.flipbot.playwright.filters.category;
 import com.microsoft.playwright.TimeoutError;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.filters.FilterActions;
+import pl.flipbot.playwright.filters.FilterPage;
 import pl.flipbot.playwright.filters.FilterSelectors;
 
 import java.util.List;
@@ -14,11 +14,10 @@ public class CategoryNavigator {
 
     private static final int MAX_ATTEMPTS = 3;
     private static final double RETRY_DELAY_MS = 2_000;
-    private static final double FIRST_ROOT_OPTION_TIMEOUT_MS = 10_000;
     private static final double STANDARD_OPTION_TIMEOUT_MS = 10_000;
     private static final double CATEGORY_PERSIST_TIMEOUT_MS = 5_000;
 
-    private final FilterActions actions;
+    private final FilterPage actions;
 
     public void select(List<String> categoryPath) {
         if (categoryPath == null || categoryPath.isEmpty()) {
@@ -39,7 +38,7 @@ public class CategoryNavigator {
                         formatPath(categoryPath)
                 );
 
-                selectCategoryPath(categoryPath, attempt);
+                selectCategoryPath(categoryPath);
 
                 if (!actions.waitForUrlParameterPresent(
                         "catalog[]",
@@ -132,18 +131,14 @@ public class CategoryNavigator {
     }
 
     private void selectCategoryPath(
-            List<String> categoryPath,
-            int attempt
+            List<String> categoryPath
     ) {
         actions.openFilter(FilterSelectors.CATEGORY_FILTER);
 
         for (int index = 0; index < categoryPath.size(); index++) {
             String category = categoryPath.get(index);
 
-            double timeoutMs =
-                    attempt == 1 && index == 0
-                            ? FIRST_ROOT_OPTION_TIMEOUT_MS
-                            : STANDARD_OPTION_TIMEOUT_MS;
+            double timeoutMs = STANDARD_OPTION_TIMEOUT_MS;
 
             log.debug(
                     "[FILTER CATEGORY] Waiting for: {} (timeout={}ms)",

@@ -26,6 +26,12 @@ public class ConversationAvailabilityDetectorTest {
     }
 
     @Test
+    public void detectsTheSoldSentenceOnItsOwnIncludingPolishLWithStroke() {
+        assertTrue(ConversationAvailabilityDetector.containsUnavailableEvidence(
+                "Przedmiot został sprzedany lub usunięty"));
+    }
+
+    @Test
     public void detectsEnglishUnavailableBanner() {
         assertTrue(
                 ConversationAvailabilityDetector.containsUnavailableEvidence(

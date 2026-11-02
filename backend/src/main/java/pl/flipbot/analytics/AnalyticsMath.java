@@ -9,6 +9,10 @@ import java.util.List;
 
 public final class AnalyticsMath {
 
+    public static boolean positive(BigDecimal value) {
+        return value != null && value.signum() > 0;
+    }
+
     private static final int SCALE = 2;
     private static final MathContext MATH_CONTEXT = MathContext.DECIMAL64;
 
@@ -146,7 +150,7 @@ public final class AnalyticsMath {
         }
 
         return rawValues.stream()
-                .filter(value -> value != null && value.signum() > 0)
+                .filter(AnalyticsMath::positive)
                 .sorted(Comparator.naturalOrder())
                 .toList();
     }
@@ -215,4 +219,5 @@ public final class AnalyticsMath {
             int count
     ) {
     }
+    //
 }

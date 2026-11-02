@@ -1,3 +1,4 @@
+import { getErrorMessage } from "../../../shared/errorMessage";
 import {
     useEffect,
     useState,
@@ -126,10 +127,6 @@ function DeleteBotPanel() {
             />
         </section>
     );
-}
-
-function getErrorMessage(error: unknown, fallbackMessage: string): string {
-    return error instanceof Error ? error.message : fallbackMessage;
 }
 
 export default DeleteBotPanel;

@@ -1,3 +1,5 @@
+import ProductConfigurationFields from "../features/bots/form/ProductConfigurationFields";
+import { getErrorMessage } from "../shared/errorMessage";
 import {
     type FormEvent,
     useState,
@@ -5,62 +7,37 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { createBot } from "../api/botsApi";
-import BasicInfoSection from "../features/bots/create/BasicInfoSection";
-import BotFiltersSection from "../features/bots/create/BotFiltersSection";
-import NegotiationBudgetSection from "../features/bots/create/NegotiationBudgetSection";
-import NegotiationStepsSection from "../features/bots/create/NegotiationStepsSection";
-import OfferStrategySection from "../features/bots/create/OfferStrategySection";
-import VintedAccountSection from "../features/bots/create/VintedAccountSection";
-import type {
-    CounterOfferRuleField,
-    NegotiationStepField,
-    NegotiationStepPolicyField,
-} from "../features/bots/create/botForm";
-import type { TargetMode } from "../types/bots";
-import { useBotDictionaries } from "../features/bots/create/hooks/useBotDictionaries";
-import { useCreateBotForm } from "../features/bots/create/hooks/useCreateBotForm";
-import { buildCreateBotRequest } from "../features/bots/create/mappers/buildCreateBotRequest";
-import { validateCreateBotForm } from "../features/bots/create/validation/validateCreateBotForm";
+import BasicInfoSection from "../features/bots/form/BasicInfoSection";
+import NegotiationBudgetSection from "../features/bots/form/NegotiationBudgetSection";
+import VintedAccountSection from "../features/bots/form/VintedAccountSection";
+import { useBotDictionaries } from "../features/bots/form/hooks/useBotDictionaries";
+import { useBotProductForm } from "../features/bots/form/hooks/useBotProductForm";
+import { buildCreateBotRequest } from "../features/bots/form/mappers/buildCreateBotRequest";
+import { validateCreateBotForm } from "../features/bots/form/validation/validateCreateBotForm";
 
 function CreateBotPage() {
     const navigate = useNavigate();
 
+    const controller = useBotProductForm();
     const {
         form,
         setBotName,
         setEmail,
         setPassword,
-        setCategory,
-        setBrand,
-        setTargetMode,
-        setModel,
-        setSearchQuery,
-        setMinPrice,
-        setMaxPrice,
-        setAutoRaiseOfferToVintedMinimum,
-        setMaxAutomaticOffer,
         setDailyNegotiationBudget,
-        addNegotiationStep,
-        removeNegotiationStep,
-        updateNegotiationStep,
-        updateNegotiationStepPolicy,
-        addCounterOfferRule,
-        removeCounterOfferRule,
-        updateCounterOfferRule,
-    } = useCreateBotForm();
+    } = controller;
 
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const dictionaries = useBotDictionaries(form.selectedBrandId);
     const {
         categories,
         brands,
         models,
         isLoadingDictionaries,
-        areModelsLoading,
         dictionaryErrorMessage,
-        clearDictionaryError,
-    } = useBotDictionaries(form.selectedBrandId);
+    } = dictionaries;
 
     const selectedCategory = categories.find(
         (category) => String(category.id) === form.selectedCategoryId,
@@ -74,58 +51,6 @@ function CreateBotPage() {
 
     function clearMessages() {
         setErrorMessage(null);
-    }
-
-    function handleAddNegotiationStep() {
-        if (!addNegotiationStep()) {
-            setErrorMessage("Nie możesz dodać więcej niż 25 kroków negocjacji.");
-            return;
-        }
-        clearMessages();
-    }
-
-    function handleRemoveNegotiationStep(stepId: number) {
-        if (!removeNegotiationStep(stepId)) {
-            setErrorMessage("Bot musi mieć przynajmniej jeden krok negocjacji.");
-            return;
-        }
-        clearMessages();
-    }
-
-    function handleUpdateNegotiationStep(
-        stepId: number,
-        field: NegotiationStepField,
-        value: string,
-    ) {
-        updateNegotiationStep(stepId, field, value);
-        clearMessages();
-    }
-
-    function handleUpdateStepPolicy(
-        stepId: number,
-        field: NegotiationStepPolicyField,
-        value: string,
-    ) {
-        updateNegotiationStepPolicy(stepId, field, value);
-        clearMessages();
-    }
-
-    function handleAddCounterRule(stepId: number) {
-        if (!addCounterOfferRule(stepId)) {
-            setErrorMessage("Jeden krok może mieć maksymalnie 25 progów procentowych.");
-            return;
-        }
-        clearMessages();
-    }
-
-    function handleUpdateCounterRule(
-        stepId: number,
-        ruleId: number,
-        field: CounterOfferRuleField,
-        value: string,
-    ) {
-        updateCounterOfferRule(stepId, ruleId, field, value);
-        clearMessages();
     }
 
     async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -197,50 +122,8 @@ function CreateBotPage() {
                         }}
                     />
 
-                    <BotFiltersSection
-                        categories={categories}
-                        brands={brands}
-                        models={models}
-                        selectedCategoryId={form.selectedCategoryId}
-                        selectedBrandId={form.selectedBrandId}
-                        targetMode={form.targetMode}
-                        selectedModelId={form.selectedModelId}
-                        searchQuery={form.searchQuery}
-                        minPrice={form.minPrice}
-                        maxPrice={form.maxPrice}
-                        isLoadingDictionaries={isLoadingDictionaries}
-                        areModelsLoading={areModelsLoading}
-                        onCategoryChange={(value) => {
-                            setCategory(value);
-                            clearMessages();
-                        }}
-                        onBrandChange={(value) => {
-                            setBrand(value);
-                            clearMessages();
-                            clearDictionaryError();
-                        }}
-                        onTargetModeChange={(value: TargetMode) => {
-                            setTargetMode(value);
-                            clearMessages();
-                        }}
-                        onModelChange={(value) => {
-                            setModel(value);
-                            clearMessages();
-                        }}
-                        onSearchQueryChange={(value) => {
-                            setSearchQuery(value);
-                            clearMessages();
-                        }}
-                        onMinPriceChange={(value) => {
-                            setMinPrice(value);
-                            clearMessages();
-                        }}
-                        onMaxPriceChange={(value) => {
-                            setMaxPrice(value);
-                            clearMessages();
-                        }}
-                    />
-
+                    <ProductConfigurationFields controller={controller} dictionaries={dictionaries}
+                        onError={setErrorMessage}>
                     <NegotiationBudgetSection
                         dailyNegotiationBudget={form.dailyNegotiationBudget}
                         onBudgetChange={(value) => {
@@ -248,39 +131,7 @@ function CreateBotPage() {
                             clearMessages();
                         }}
                     />
-
-                    <OfferStrategySection
-                        autoRaiseOfferToVintedMinimum={
-                            form.autoRaiseOfferToVintedMinimum
-                        }
-                        maxAutomaticOffer={form.maxAutomaticOffer}
-                        firstConfiguredOffer={
-                            form.negotiationSteps[0]?.offerPrice ?? ""
-                        }
-                        onAutoRaiseChange={(value) => {
-                            setAutoRaiseOfferToVintedMinimum(value);
-                            clearMessages();
-                        }}
-                        onMaxAutomaticOfferChange={(value) => {
-                            setMaxAutomaticOffer(value);
-                            clearMessages();
-                        }}
-                    />
-
-                    <NegotiationStepsSection
-                        negotiationSteps={form.negotiationSteps}
-                        dailyNegotiationBudget={form.dailyNegotiationBudget}
-                        onAddStep={handleAddNegotiationStep}
-                        onRemoveStep={handleRemoveNegotiationStep}
-                        onUpdateStep={handleUpdateNegotiationStep}
-                        onUpdateStepPolicy={handleUpdateStepPolicy}
-                        onAddCounterOfferRule={handleAddCounterRule}
-                        onRemoveCounterOfferRule={(stepId, ruleId) => {
-                            removeCounterOfferRule(stepId, ruleId);
-                            clearMessages();
-                        }}
-                        onUpdateCounterOfferRule={handleUpdateCounterRule}
-                    />
+                    </ProductConfigurationFields>
                 </fieldset>
 
                 {dictionaryErrorMessage !== null && (
@@ -307,10 +158,6 @@ function CreateBotPage() {
             </form>
         </section>
     );
-}
-
-function getErrorMessage(error: unknown, fallbackMessage: string): string {
-    return error instanceof Error ? error.message : fallbackMessage;
 }
 
 export default CreateBotPage;

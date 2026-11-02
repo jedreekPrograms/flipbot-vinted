@@ -13,8 +13,6 @@ public interface RealActionAuditRepository
 
     Optional<RealActionAudit> findByRequestId(UUID requestId);
 
-    List<RealActionAudit> findByBotIdOrderByCreatedAtDesc(Long botId);
-
     boolean existsByBackendListingIdAndActionTypeAndOutcome(
             Long backendListingId,
             RealActionType actionType,

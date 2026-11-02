@@ -17,14 +17,14 @@ import java.util.Objects;
  */
 @Slf4j
 @RequiredArgsConstructor
-final class ConversationIdentityCoordinator {
+public final class ConversationIdentityCoordinator {
 
     private final BotContext context;
     private final ListingClient listingClient = new ListingClient();
     private final ConversationIdentityResolver resolver =
             new ConversationIdentityResolver();
 
-    ListingResponseDto verifyAndCanonicalize(
+    public ListingResponseDto verifyAndCanonicalize(
             ListingResponseDto listing,
             String operation
     ) {

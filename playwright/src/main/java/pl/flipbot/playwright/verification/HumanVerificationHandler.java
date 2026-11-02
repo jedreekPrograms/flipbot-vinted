@@ -3,13 +3,13 @@ package pl.flipbot.playwright.verification;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
-import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.target.VintedHumanVerificationRequiredException;
-import pl.flipbot.playwright.target.VintedSessionBlockDetector;
-
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.browser.BrowserInteractionMode;
+import pl.flipbot.playwright.target.VintedHumanVerificationRequiredException;
+import pl.flipbot.playwright.target.VintedSessionBlockDetector;
 
 @Slf4j
 public class HumanVerificationHandler {
@@ -67,12 +67,23 @@ public class HumanVerificationHandler {
          * persistent per-bot exponential cooldown. */
         sessionBlockDetector.throwIfBlocked(page, "checking verification state");
 
-        cookieConsentHandler.acceptAllIfVisible(page);
-        sessionBlockDetector.throwIfBlocked(page, "after clearing cookie consent");
+        if (cookieConsentHandler.acceptAllIfVisible(page)) {
+            sessionBlockDetector.throwIfBlocked(page, "after clearing cookie consent");
+        }
 
         String evidence = verificationEvidence(page);
         if (evidence == null) {
             return;
+        }
+
+        if (BrowserInteractionMode.isHeadless(page.context())) {
+            // No human can operate this hidden page. Waiting here holds the
+            // scheduler's WORKING claim and prevents the requested LIVE owner
+            // from starting. Yield through the existing protective cooldown;
+            // a requested visible owner can then handle manual recovery.
+            throw new VintedHumanVerificationRequiredException(
+                    "Human verification requires a visible browser. Releasing the headless job so LIVE preview can open. Evidence: "
+                            + evidence);
         }
 
         log.warn(
@@ -92,8 +103,9 @@ public class HumanVerificationHandler {
 
             page.waitForTimeout(POLL_INTERVAL_MS);
             sessionBlockDetector.throwIfBlocked(page, "waiting for human verification");
-            cookieConsentHandler.acceptAllIfVisible(page);
-            sessionBlockDetector.throwIfBlocked(page, "after verification-page consent check");
+            if (cookieConsentHandler.acceptAllIfVisible(page)) {
+                sessionBlockDetector.throwIfBlocked(page, "after verification-page consent check");
+            }
 
             latestEvidence = verificationEvidence(page);
             if (latestEvidence == null) {

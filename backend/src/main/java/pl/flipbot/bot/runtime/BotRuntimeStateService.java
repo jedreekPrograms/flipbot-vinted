@@ -3,6 +3,7 @@ package pl.flipbot.bot.runtime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.exception.InvalidRequestException;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.runtime.dto.BotRuntimeEventRequest;
@@ -35,7 +36,7 @@ public class BotRuntimeStateService {
             BotRuntimeEventRequest request
     ) {
         if (request == null || request.getEventType() == null) {
-            throw new IllegalArgumentException("Runtime event type is required.");
+            throw new InvalidRequestException("Runtime event type is required.");
         }
 
         BotRuntimeState state = getOrCreateState(botId);
@@ -259,3 +260,4 @@ public class BotRuntimeStateService {
                 .build();
     }
 }
+//

@@ -16,6 +16,7 @@ public class LoginRestoredSessionSettleTest {
     @Test
     public void delayedAuthenticatedUiWinsBeforeCredentialRelogin() {
         Page page = mock(Page.class);
+        when(page.url()).thenReturn("https://www.vinted.pl/");
         Locator conversations = mock(Locator.class);
         Locator inbox = mock(Locator.class);
         AtomicInteger polls = new AtomicInteger();
@@ -32,7 +33,7 @@ public class LoginRestoredSessionSettleTest {
         when(conversations.isVisible()).thenReturn(true);
         when(inbox.count()).thenReturn(0);
 
-        String signal = new LoginService(null)
+        String signal = new LoginSessionVerifier(null)
                 .waitForRestoredSessionSignal(page);
 
         assertEquals("header-conversations-button", signal);
@@ -42,6 +43,7 @@ public class LoginRestoredSessionSettleTest {
     @Test
     public void missingAuthenticatedUiStopsAfterBoundedGracePeriod() {
         Page page = mock(Page.class);
+        when(page.url()).thenReturn("https://www.vinted.pl/");
         Locator conversations = mock(Locator.class);
         Locator inbox = mock(Locator.class);
 
@@ -53,7 +55,7 @@ public class LoginRestoredSessionSettleTest {
         when(inbox.count()).thenReturn(0);
 
         assertNull(
-                new LoginService(null)
+                new LoginSessionVerifier(null)
                         .waitForRestoredSessionSignal(page)
         );
 

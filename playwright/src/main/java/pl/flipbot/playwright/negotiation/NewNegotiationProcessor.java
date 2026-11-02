@@ -1,108 +1,56 @@
 package pl.flipbot.playwright.negotiation;
 
+import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.listing.ListingClient;
 import pl.flipbot.playwright.api.listing.ListingStatusUpdater;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
-import pl.flipbot.playwright.api.listing.dto.UpdateListingRequestDto;
 import pl.flipbot.playwright.api.quota.OfferQuotaClient;
-import pl.flipbot.playwright.api.quota.dto.OfferQuotaReservationResponseDto;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.model.BotConfigurationDto;
+import pl.flipbot.playwright.negotiation.first.*;
+import pl.flipbot.playwright.negotiation.first.AdaptiveFirstOfferAction;
 import pl.flipbot.playwright.target.ListingDetailTargetInspector;
-import pl.flipbot.playwright.target.ListingTargetAssessment;
 import pl.flipbot.playwright.target.ListingTargetMatcher;
-import pl.flipbot.playwright.target.ListingUnavailableDuringVerificationException;
-import pl.flipbot.playwright.target.VintedRateLimitException;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
 
 @Slf4j
-public class NewNegotiationProcessor {
-
-    private static final String VINTED_MODEL = "VINTED_MODEL";
-    private static final int MAX_DETAIL_INSPECTIONS_PER_CYCLE = 5;
-    private static final int MAX_FINAL_VERIFICATIONS_PER_CYCLE = 20;
+public final class NewNegotiationProcessor {
     private static final int PREPARATION_FALLBACK_CANDIDATES = 5;
-    private static final double DETAIL_INSPECTION_PACING_MS = 1_500;
-
     private final BotContext context;
     private final ListingClient listingClient;
-    private final OfferQuotaClient offerQuotaClient;
-    private final ListingStatusUpdater listingStatusUpdater;
-    private final FirstOfferExecutor firstOfferExecutor;
-    private final FirstOfferActionGuardCoordinator firstOfferActionGuardCoordinator;
-    private final ListingTargetMatcher listingTargetMatcher;
-    private final ListingDetailTargetInspector listingDetailTargetInspector;
-    private final CatalogDetailInspectionBudget detailInspectionBudget;
+    private final FirstOfferCandidates candidates;
+    private final FirstOfferTargetVerifier verifier;
+    private final FirstOfferWorkflow workflow;
     private final boolean realOffersEnabled;
     private final int maxRealOffersPerRun;
 
-    public NewNegotiationProcessor(
-            BotContext context,
-            ListingClient listingClient,
-            OfferQuotaClient offerQuotaClient,
-            ListingStatusUpdater listingStatusUpdater,
-            boolean realOffersEnabled,
-            int maxRealOffersPerRun
-    ) {
-        this(
-                context,
-                listingClient,
-                offerQuotaClient,
-                listingStatusUpdater,
-                realOffersEnabled,
-                maxRealOffersPerRun,
-                new CatalogDetailInspectionBudget(
-                        MAX_DETAIL_INSPECTIONS_PER_CYCLE
-                                + MAX_FINAL_VERIFICATIONS_PER_CYCLE
-                )
-        );
+    public NewNegotiationProcessor(BotContext context, ListingClient listingClient, OfferQuotaClient quota,
+                                   ListingStatusUpdater statuses, boolean enabled, int maxOffers) {
+        this(context, listingClient, quota, statuses, enabled, maxOffers,
+                new CatalogDetailInspectionBudget(FirstOfferCandidates.DETAIL_LIMIT_PER_CYCLE
+                        + FirstOfferTargetVerifier.MAX_CANDIDATES_PER_CYCLE));
     }
 
-    public NewNegotiationProcessor(
-            BotContext context,
-            ListingClient listingClient,
-            OfferQuotaClient offerQuotaClient,
-            ListingStatusUpdater listingStatusUpdater,
-            boolean realOffersEnabled,
-            int maxRealOffersPerRun,
-            CatalogDetailInspectionBudget detailInspectionBudget
-    ) {
-        if (detailInspectionBudget == null) {
-            throw new IllegalArgumentException(
-                    "Catalog detail inspection budget is required."
-            );
+    public NewNegotiationProcessor(BotContext context, ListingClient listingClient, OfferQuotaClient quota,
+                                   ListingStatusUpdater statuses, boolean enabled, int maxOffers,
+                                   CatalogDetailInspectionBudget budget) {
+        if (budget == null) {
+            throw new IllegalArgumentException("Catalog detail inspection budget is required.");
         }
-
         this.context = context;
         this.listingClient = listingClient;
-        this.offerQuotaClient = offerQuotaClient;
-        this.listingStatusUpdater = listingStatusUpdater;
-        this.firstOfferExecutor = new AdaptiveFirstOfferExecutor(context);
-        this.firstOfferActionGuardCoordinator = new FirstOfferActionGuardCoordinator();
-        this.listingTargetMatcher = new ListingTargetMatcher();
-        this.listingDetailTargetInspector = new ListingDetailTargetInspector(
-                context,
-                listingTargetMatcher
-        );
-        this.detailInspectionBudget = detailInspectionBudget;
-        this.realOffersEnabled = realOffersEnabled;
-        this.maxRealOffersPerRun = maxRealOffersPerRun;
+        this.realOffersEnabled = enabled;
+        this.maxRealOffersPerRun = maxOffers;
+        ListingTargetMatcher matcher = new ListingTargetMatcher();
+        ListingDetailTargetInspector inspector = new ListingDetailTargetInspector(context, matcher);
+        this.candidates = new FirstOfferCandidates(context, statuses, matcher, inspector, budget);
+        this.verifier = new FirstOfferTargetVerifier(context, statuses, inspector, budget);
+        this.workflow = new FirstOfferWorkflow(new AdaptiveFirstOfferAction(context),
+                new FirstOfferActionGuardCoordinator(), quota, statuses);
     }
 
-    /**
-     * @param currentScanListingIds IDs actually observed in THIS already-filtered
-     * current catalog scan. For VINTED_MODEL these are the only persisted rows
-     * allowed to inherit current exact-model-filter provenance for this cycle.
-     */
-    public void process(
-            List<ListingResponseDto> priceEligibleListings,
-            Set<String> currentScanListingIds
-    ) {
+    public void process(List<ListingResponseDto> priceEligibleListings, Set<String> currentScanListingIds) {
         if (priceEligibleListings == null || priceEligibleListings.isEmpty()) {
             log.info("[REAL OFFER] There are no price-eligible listings to process.");
             return;
@@ -117,7 +65,7 @@ public class NewNegotiationProcessor {
             throw new IllegalStateException("Bot configuration is missing");
         }
 
-        List<ListingResponseDto> targetEligibleListings = retainTargetEligibleListings(
+        List<ListingResponseDto> targetEligibleListings = candidates.select(
                 priceEligibleListings,
                 configuration,
                 currentScanIds
@@ -140,12 +88,7 @@ public class NewNegotiationProcessor {
         }
 
         if (!realOffersEnabled) {
-            processDryRun(
-                    targetEligibleListings,
-                    configuration,
-                    currentScanIds,
-                    allowedNewNegotiations
-            );
+            processDryRun(targetEligibleListings, configuration, currentScanIds, allowedNewNegotiations);
             return;
         }
 
@@ -164,16 +107,12 @@ public class NewNegotiationProcessor {
             Set<String> currentScanListingIds,
             int allowedNewNegotiations
     ) {
-        int desiredVerified = Math.min(
-                targetEligibleListings.size(),
-                allowedNewNegotiations
-        );
+        int desiredVerified = Math.min(targetEligibleListings.size(), allowedNewNegotiations);
 
-        FinalVerificationResult finalVerification = verifyFinalCandidates(
+        FirstOfferTargetVerifier.FinalVerificationResult finalVerification = verifier.verify(
                 targetEligibleListings,
                 configuration,
                 currentScanListingIds,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
                 desiredVerified
         );
 
@@ -195,10 +134,7 @@ public class NewNegotiationProcessor {
             Long botId,
             int allowedNewNegotiations
     ) {
-        int maximumOffersThisRun = Math.min(
-                allowedNewNegotiations,
-                maxRealOffersPerRun
-        );
+        int maximumOffersThisRun = Math.min(allowedNewNegotiations, maxRealOffersPerRun);
 
         if (maximumOffersThisRun <= 0) {
             log.warn(
@@ -210,10 +146,7 @@ public class NewNegotiationProcessor {
 
         int desiredVerifiedCandidates = Math.min(
                 targetEligibleListings.size(),
-                Math.min(
-                        MAX_FINAL_VERIFICATIONS_PER_CYCLE,
-                        maximumOffersThisRun + PREPARATION_FALLBACK_CANDIDATES
-                )
+                Math.min(FirstOfferTargetVerifier.MAX_CANDIDATES_PER_CYCLE, maximumOffersThisRun + PREPARATION_FALLBACK_CANDIDATES)
         );
 
         log.warn(
@@ -222,17 +155,16 @@ public class NewNegotiationProcessor {
                 targetEligibleListings.size(),
                 allowedNewNegotiations,
                 maximumOffersThisRun,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
+                FirstOfferTargetVerifier.MAX_CANDIDATES_PER_CYCLE,
                 desiredVerifiedCandidates,
                 maximumOffersThisRun,
                 PREPARATION_FALLBACK_CANDIDATES
         );
 
-        FinalVerificationResult finalVerification = verifyFinalCandidates(
+        FirstOfferTargetVerifier.FinalVerificationResult finalVerification = verifier.verify(
                 targetEligibleListings,
                 configuration,
                 currentScanListingIds,
-                MAX_FINAL_VERIFICATIONS_PER_CYCLE,
                 desiredVerifiedCandidates
         );
 
@@ -258,196 +190,12 @@ public class NewNegotiationProcessor {
                 break;
             }
 
-            NegotiationPreparationResult preparationResult;
-
-            try {
-                preparationResult = firstOfferExecutor.prepareFirstOffer(listing);
-            } catch (VintedRateLimitException exception) {
-                throw exception;
-            } catch (Exception exception) {
-                log.error(
-                        "[REAL OFFER PREPARE] Failed before quota reservation for marketplace listing {}: {}. No quota was reserved and no offer was sent. Trying the next verified candidate.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[REAL OFFER PREPARE] Full preparation error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.LISTING_UNAVAILABLE) {
-                listingStatusUpdater.markUnavailable(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.TARGET_MISMATCH) {
-                listingStatusUpdater.markTargetMismatch(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.OFFER_TOO_LOW) {
-                listingStatusUpdater.markOfferTooLow(botId, listing);
-                continue;
-            }
-
-            if (preparationResult == NegotiationPreparationResult.CANNOT_NEGOTIATE) {
-                markCannotNegotiate(botId, listing);
-                log.warn(
-                        "[REAL OFFER] Skipping marketplace listing {} because Vinted exposes no negotiation action for this account. Backend status is now SKIPPED_CANNOT_NEGOTIATE. Trying the next fully verified candidate. No quota was reserved.",
-                        listing.listingId()
-                );
-                continue;
-            }
-
-            if (preparationResult != NegotiationPreparationResult.PREPARED) {
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                throw new IllegalStateException(
-                        "Unexpected negotiation preparation result: " + preparationResult
-                );
-            }
-
-            try {
-                firstOfferExecutor.assertPreparedOfferReady(listing);
-            } catch (Exception exception) {
-                log.error(
-                        "[REAL OFFER PREPARE] Prepared form became invalid before quota reservation for marketplace listing {}: {}. No quota was reserved. Trying the next verified candidate.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[REAL OFFER PREPARE] Full pre-quota readiness error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                continue;
-            }
-
-            var actionGuardRequestId = firstOfferActionGuardCoordinator.acquire(
-                    botId,
-                    listing
-            );
-
-            if (actionGuardRequestId == null) {
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                log.warn(
-                        "[REAL OFFER] FIRST_OFFER action guard refused marketplace listing {} (for example because another bot already owns that marketplace negotiation). No quota was reserved and no real submit was attempted. Trying the next verified candidate instead of wasting this run's capacity.",
-                        listing.listingId()
-                );
-                continue;
-            }
-
-            log.warn(
-                    "[REAL OFFER] Marketplace listing {} passed every pre-submit guard. Persistent FIRST_OFFER guard is acquired. Reserving quota now, immediately before the real submit click.",
-                    listing.listingId()
-            );
-
-            OfferQuotaReservationResponseDto quotaReservation;
-
-            try {
-                quotaReservation = offerQuotaClient.reserveSlot(
-                        botId,
-                        actionGuardRequestId
-                );
-            } catch (Exception exception) {
-                firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
-                        botId,
-                        listing,
-                        actionGuardRequestId,
-                        "quota reservation failed before real submit"
-                );
-                firstOfferExecutor.cancelPreparedOfferSafely();
-                throw exception;
-            }
-
-            if (!quotaReservation.reserved()) {
-                firstOfferActionGuardCoordinator.releaseBeforeSubmitSafely(
-                        botId,
-                        listing,
-                        actionGuardRequestId,
-                        "daily quota was not reserved"
-                );
-
-                log.warn(
-                        "[REAL OFFER] Daily offer quota exhausted for bot {}. Used: {}/{}, remaining: {}. Prepared form will be closed and no offer will be sent.",
-                        botId,
-                        quotaReservation.used(),
-                        quotaReservation.limit(),
-                        quotaReservation.remaining()
-                );
-
-                firstOfferExecutor.cancelPreparedOfferSafely();
+            FirstOfferWorkflow.Outcome outcome = workflow.execute(botId, listing);
+            if (outcome == FirstOfferWorkflow.Outcome.QUOTA_EXHAUSTED) {
                 return;
             }
-
-            try {
-                NegotiationStartResult result = firstOfferExecutor
-                        .submitPreparedFirstNegotiation(listing);
-
-                if (result != NegotiationStartResult.STARTED) {
-                    throw new IllegalStateException(
-                            "Unexpected negotiation start result after prepared submit: " + result
-                    );
-                }
-
-                firstOfferActionGuardCoordinator.releaseAfterConfirmedSuccessBestEffort(
-                        botId,
-                        listing,
-                        actionGuardRequestId
-                );
-
+            if (outcome == FirstOfferWorkflow.Outcome.STARTED) {
                 startedNegotiations++;
-
-                log.warn(
-                        "[REAL OFFER] Real negotiation STARTED for marketplace listing {}. Started during this run: {}/{}. Daily quota used: {}/{}, remaining: {}.",
-                        listing.listingId(),
-                        startedNegotiations,
-                        maximumOffersThisRun,
-                        quotaReservation.used(),
-                        quotaReservation.limit(),
-                        quotaReservation.remaining()
-                );
-
-            } catch (Exception exception) {
-                boolean reconciled =
-                        firstOfferExecutor.reconcilePreparedFirstNegotiationAfterAmbiguousSubmit(
-                                listing
-                        );
-
-                if (reconciled) {
-                    firstOfferActionGuardCoordinator.releaseAfterConfirmedSuccessBestEffort(
-                            botId,
-                            listing,
-                            actionGuardRequestId
-                    );
-
-                    startedNegotiations++;
-
-                    log.warn(
-                            "[REAL OFFER] Post-submit failure for listing {} was reconciled from strong Vinted conversation evidence. "
-                                    + "The backend is NEGOTIATING and no duplicate offer was sent. Original error: {}",
-                            listing.listingId(),
-                            getFriendlyErrorMessage(exception)
-                    );
-                    continue;
-                }
-
-                log.error(
-                        "[REAL OFFER] Failure occurred after quota reservation while submitting marketplace listing {}: {}. "
-                                + "Strong reconciliation could not prove delivery. Quota will NOT be released automatically and FIRST_OFFER action guard remains persisted to prevent a duplicate offer.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[REAL OFFER] Full post-reservation submission error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-                throw exception;
             }
         }
 
@@ -455,528 +203,5 @@ public class NewNegotiationProcessor {
                 "[REAL OFFER] Finished real-offer processing. Started {} negotiation(s).",
                 startedNegotiations
         );
-    }
-
-    private void markCannotNegotiate(
-            Long botId,
-            ListingResponseDto listing
-    ) {
-        BigDecimal currentPrice = listing.currentPrice() != null
-                ? listing.currentPrice()
-                : listing.originalPrice();
-
-        if (currentPrice == null) {
-            throw new IllegalStateException(
-                    "Cannot mark backend listing " + listing.id()
-                            + " as SKIPPED_CANNOT_NEGOTIATE because its price is null"
-            );
-        }
-
-        Integer currentStep = listing.currentStep() != null
-                ? listing.currentStep()
-                : 0;
-
-        UpdateListingRequestDto request = new UpdateListingRequestDto(
-                "SKIPPED_CANNOT_NEGOTIATE",
-                currentPrice,
-                currentStep,
-                false,
-                null,
-                null
-        );
-
-        ListingResponseDto updatedListing = listingClient.updateListing(
-                botId,
-                listing.id(),
-                request
-        );
-
-        if (!"SKIPPED_CANNOT_NEGOTIATE".equals(updatedListing.status())) {
-            throw new IllegalStateException(
-                    "Backend returned an unexpected status after marking listing "
-                            + listing.id()
-                            + " as SKIPPED_CANNOT_NEGOTIATE. Actual: "
-                            + updatedListing.status()
-            );
-        }
-
-        log.info(
-                "[CANNOT NEGOTIATE] Backend listing {} / marketplace listing {} was marked as SKIPPED_CANNOT_NEGOTIATE. No quota was reserved.",
-                updatedListing.id(),
-                listing.listingId()
-        );
-    }
-
-    private FinalVerificationResult verifyFinalCandidates(
-            List<ListingResponseDto> targetEligibleListings,
-            BotConfigurationDto configuration,
-            Set<String> currentScanListingIds,
-            int maximumCandidatesToCheck,
-            int desiredVerifiedCount
-    ) {
-        int candidatesToCheck = Math.min(
-                targetEligibleListings.size(),
-                maximumCandidatesToCheck
-        );
-
-        if (candidatesToCheck <= 0) {
-            return new FinalVerificationResult(List.of(), 0, 0, 0, 0);
-        }
-
-        log.info(
-                "[FINAL VERIFY] Starting mandatory final target verification. Target-eligible={}, candidatesLimit={}, desiredVerified={}. No quota has been reserved.",
-                targetEligibleListings.size(),
-                candidatesToCheck,
-                desiredVerifiedCount
-        );
-
-        List<ListingResponseDto> verifiedListings = new ArrayList<>();
-        int checked = 0;
-        int mismatches = 0;
-        int failures = 0;
-        int realItemPageRequests = 0;
-        int deferredByGlobalDetailBudget = 0;
-
-        for (ListingResponseDto listing : targetEligibleListings) {
-            if (checked >= candidatesToCheck) {
-                break;
-            }
-
-            if (desiredVerifiedCount > 0
-                    && verifiedListings.size() >= desiredVerifiedCount) {
-                break;
-            }
-
-            checked++;
-
-            boolean currentExactModelProof = hasCurrentExactModelProof(
-                    listing,
-                    configuration,
-                    currentScanListingIds
-            );
-
-            if (currentExactModelProof) {
-                log.info(
-                        "[FINAL VERIFY] Candidate {}/{}. Backend listing={}, marketplace listing={}, catalog title='{}', price={}, targetMode={}, target='{}', source=CURRENT_EXACT_VINTED_MODEL_SCAN.",
-                        checked,
-                        candidatesToCheck,
-                        listing.id(),
-                        listing.listingId(),
-                        listing.title(),
-                        listing.originalPrice(),
-                        configuration.getTargetMode(),
-                        getConfiguredTargetLabel(configuration)
-                );
-
-                verifiedListings.add(listing);
-                continue;
-            }
-
-            boolean cached = listingDetailTargetInspector.hasCachedFullTitle(
-                    listing.listingId()
-            );
-            boolean liveItemPageRequest = !cached;
-
-            if (liveItemPageRequest && !detailInspectionBudget.tryAcquire()) {
-                deferredByGlobalDetailBudget++;
-                log.info(
-                        "[FINAL VERIFY] Marketplace listing {} needs a live item-page verification, but the shared catalog detail budget is exhausted ({}/{}). It remains DISCOVERED for a later catalog cycle.",
-                        listing.listingId(),
-                        detailInspectionBudget.used(),
-                        detailInspectionBudget.limit()
-                );
-                continue;
-            }
-
-            if (liveItemPageRequest && realItemPageRequests > 0) {
-                context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
-            }
-
-            if (liveItemPageRequest) {
-                realItemPageRequests++;
-            }
-
-            String verificationSource = cached
-                    ? "LIVE_ITEM_IDENTITY_CACHE"
-                    : "VINTED_ITEM_PAGE";
-
-            log.info(
-                    "[FINAL VERIFY] Candidate {}/{}. Backend listing={}, marketplace listing={}, catalog title='{}', price={}, targetMode={}, target='{}', source={}.",
-                    checked,
-                    candidatesToCheck,
-                    listing.id(),
-                    listing.listingId(),
-                    listing.title(),
-                    listing.originalPrice(),
-                    configuration.getTargetMode(),
-                    getConfiguredTargetLabel(configuration),
-                    verificationSource
-            );
-
-            try {
-                boolean matchesTarget = listingDetailTargetInspector.matchesConfiguredTarget(
-                        listing,
-                        configuration
-                );
-
-                if (matchesTarget) {
-                    verifiedListings.add(listing);
-                    log.info(
-                            "[FINAL VERIFY] Marketplace listing {} PASSED mandatory final target verification. Verified candidates: {}/{}.",
-                            listing.listingId(),
-                            verifiedListings.size(),
-                            desiredVerifiedCount
-                    );
-                } else {
-                    mismatches++;
-                    listingStatusUpdater.markTargetMismatch(
-                            context.getBot().getId(),
-                            listing
-                    );
-                    log.warn(
-                            "[FINAL VERIFY] Marketplace listing {} FAILED mandatory final target verification and was persisted as SKIPPED_TARGET_MISMATCH. It will not block later backlog candidates.",
-                            listing.listingId()
-                    );
-                }
-            } catch (VintedRateLimitException exception) {
-                log.warn(
-                        "[RATE LIMIT] Vinted rate limit detected during mandatory final verification of marketplace listing {}. Stopping this work cycle.",
-                        listing.listingId()
-                );
-                throw exception;
-            } catch (ListingUnavailableDuringVerificationException exception) {
-                listingStatusUpdater.markUnavailable(
-                        context.getBot().getId(),
-                        listing
-                );
-                log.info(
-                        "[FINAL VERIFY] Marketplace listing {} became unavailable and was persisted as UNAVAILABLE. Verification continues with the next candidate.",
-                        listing.listingId()
-                );
-            } catch (Exception exception) {
-                failures++;
-                log.warn(
-                        "[FINAL VERIFY] Could not verify marketplace listing {}: {}. It remains DISCOVERED and will be retried in a later cycle; verification will continue with the next candidate now.",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[FINAL VERIFY] Full verification error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-            }
-        }
-
-        log.info(
-                "[FINAL VERIFY] Finished. Checked={}, passed={}, mismatches={}, failures={}, real item-page requests={}, deferred by shared catalog detail budget={}, shared budget={}/{}.",
-                checked,
-                verifiedListings.size(),
-                mismatches,
-                failures,
-                realItemPageRequests,
-                deferredByGlobalDetailBudget,
-                detailInspectionBudget.used(),
-                detailInspectionBudget.limit()
-        );
-
-        return new FinalVerificationResult(
-                List.copyOf(verifiedListings),
-                checked,
-                mismatches,
-                failures,
-                realItemPageRequests
-        );
-    }
-
-    private List<ListingResponseDto> retainTargetEligibleListings(
-            List<ListingResponseDto> listings,
-            BotConfigurationDto configuration,
-            Set<String> currentScanListingIds
-    ) {
-        List<ListingResponseDto> eligibleListings = new ArrayList<>();
-
-        int acceptedFromCurrentExactScan = 0;
-        int matchedFromCatalogTitle = 0;
-        int matchedFromUrlSlug = 0;
-        int matchedFromDetailCache = 0;
-        int matchedAfterDetailRequest = 0;
-        int rejectedCatalogMismatch = 0;
-        int rejectedUrlMismatch = 0;
-        int rejectedFromDetailCache = 0;
-        int rejectedAfterDetailRequest = 0;
-        int detailInspectionFailures = 0;
-        int deferredByDetailLimit = 0;
-        int deferredByGlobalDetailBudget = 0;
-        int detailRequestsThisCycle = 0;
-        int persistedTargetMismatches = 0;
-        int persistedUnavailable = 0;
-        int deferredVintedModelOutsideCurrentScan = 0;
-        Long botId = context.getBot().getId();
-
-        for (ListingResponseDto listing : listings) {
-            boolean currentExactModelProof = hasCurrentExactModelProof(
-                    listing,
-                    configuration,
-                    currentScanListingIds
-            );
-
-            /*
-             * VINTED_MODEL trusts the CURRENT native Vinted model-filter result
-             * set. There is deliberately no title/URL/item-page target guard in
-             * this mode.
-             *
-             * Persisted backlog rows that are not visible in the current exact
-             * model-filter scan are deferred until a future current scan. They
-             * are not reclassified by seller text and cannot reach submit from
-             * stale provenance alone.
-             */
-            if (usesExactVintedModelFilter(configuration)) {
-                if (currentExactModelProof) {
-                    eligibleListings.add(listing);
-                    acceptedFromCurrentExactScan++;
-                    log.debug(
-                            "[TARGET PROVENANCE] Marketplace listing {} accepted directly from CURRENT native Vinted model-filter scan. No post-filter target safety guard is applied.",
-                            listing.listingId()
-                    );
-                } else {
-                    deferredVintedModelOutsideCurrentScan++;
-                    log.debug(
-                            "[TARGET PROVENANCE] Marketplace listing {} is VINTED_MODEL backlog but is not present in the current exact native filter scan. Deferring it without title/URL/item-page target verification.",
-                            listing.listingId()
-                    );
-                }
-                continue;
-            }
-
-            /*
-             * SEARCH_QUERY is the opposite mode: Vinted's text search is not
-             * trusted as exact model identity, so the existing target safety
-             * matcher and live item inspection remain mandatory.
-             */
-            ListingTargetAssessment catalogAssessment = listingTargetMatcher
-                    .assessCatalogListing(listing, configuration);
-
-            if (catalogAssessment == ListingTargetAssessment.MATCH) {
-                eligibleListings.add(listing);
-                matchedFromCatalogTitle++;
-                continue;
-            }
-
-            if (catalogAssessment == ListingTargetAssessment.MISMATCH) {
-                rejectedCatalogMismatch++;
-                listingStatusUpdater.markTargetMismatch(botId, listing);
-                persistedTargetMismatches++;
-                continue;
-            }
-
-            ListingTargetAssessment urlAssessment = listingTargetMatcher
-                    .assessListingUrl(listing, configuration);
-
-            if (urlAssessment == ListingTargetAssessment.MATCH) {
-                eligibleListings.add(listing);
-                matchedFromUrlSlug++;
-                continue;
-            }
-
-            if (urlAssessment == ListingTargetAssessment.MISMATCH) {
-                rejectedUrlMismatch++;
-                listingStatusUpdater.markTargetMismatch(botId, listing);
-                persistedTargetMismatches++;
-                continue;
-            }
-
-            boolean cached = listingDetailTargetInspector.hasCachedFullTitle(
-                    listing.listingId()
-            );
-
-            if (cached) {
-                try {
-                    boolean cachedMatches = listingDetailTargetInspector
-                            .matchesConfiguredTarget(listing, configuration);
-
-                    if (cachedMatches) {
-                        eligibleListings.add(listing);
-                        matchedFromDetailCache++;
-                    } else {
-                        rejectedFromDetailCache++;
-                        listingStatusUpdater.markTargetMismatch(botId, listing);
-                        persistedTargetMismatches++;
-                    }
-                } catch (Exception exception) {
-                    detailInspectionFailures++;
-                    log.warn(
-                            "[TARGET DETAIL] Cached identity for marketplace listing {} could not safely prove the target: {}. It remains DISCOVERED for retry.",
-                            listing.listingId(),
-                            getFriendlyErrorMessage(exception)
-                    );
-                }
-                continue;
-            }
-
-            if (detailRequestsThisCycle >= MAX_DETAIL_INSPECTIONS_PER_CYCLE) {
-                deferredByDetailLimit++;
-                log.info(
-                        "[TARGET DETAIL] Marketplace listing {} is persisted backlog with ambiguous identity, but the per-cycle detail limit ({}) is reached. It is deferred safely and cannot reach quota/submit this cycle.",
-                        listing.listingId(),
-                        MAX_DETAIL_INSPECTIONS_PER_CYCLE
-                );
-                continue;
-            }
-
-            if (!detailInspectionBudget.tryAcquire()) {
-                deferredByGlobalDetailBudget++;
-                log.info(
-                        "[TARGET DETAIL] Marketplace listing {} needs a live detail inspection, but the shared catalog detail budget is exhausted ({}/{}). It remains DISCOVERED for a later catalog cycle and cannot reach quota/submit now.",
-                        listing.listingId(),
-                        detailInspectionBudget.used(),
-                        detailInspectionBudget.limit()
-                );
-                continue;
-            }
-
-            if (detailRequestsThisCycle > 0) {
-                context.getPage().waitForTimeout(DETAIL_INSPECTION_PACING_MS);
-            }
-
-            detailRequestsThisCycle++;
-
-            try {
-                boolean detailMatches = listingDetailTargetInspector
-                        .matchesConfiguredTarget(listing, configuration);
-
-                if (detailMatches) {
-                    eligibleListings.add(listing);
-                    matchedAfterDetailRequest++;
-                } else {
-                    rejectedAfterDetailRequest++;
-                    listingStatusUpdater.markTargetMismatch(botId, listing);
-                    persistedTargetMismatches++;
-                }
-            } catch (VintedRateLimitException exception) {
-                log.warn(
-                        "[RATE LIMIT] Vinted rate limit detected while inspecting marketplace listing {}. Stopping this work cycle immediately.",
-                        listing.listingId()
-                );
-                throw exception;
-            } catch (ListingUnavailableDuringVerificationException exception) {
-                listingStatusUpdater.markUnavailable(botId, listing);
-                persistedUnavailable++;
-                log.info(
-                        "[TARGET DETAIL] Marketplace listing {} became unavailable during target inspection and was persisted as UNAVAILABLE.",
-                        listing.listingId()
-                );
-            } catch (Exception exception) {
-                detailInspectionFailures++;
-                log.warn(
-                        "[TARGET DETAIL] Failed to inspect marketplace listing {}. It remains DISCOVERED and will be retried in a later cycle. Error: {}",
-                        listing.listingId(),
-                        getFriendlyErrorMessage(exception)
-                );
-                log.trace(
-                        "[TARGET DETAIL] Full inspection error for marketplace listing {}.",
-                        listing.listingId(),
-                        exception
-                );
-            }
-        }
-
-        log.info(
-                "[TARGET MATCHER] Checked {} price-eligible DISCOVERED candidates. Current native Vinted-filter accepted: {}, VINTED_MODEL backlog deferred outside current scan: {}, SEARCH_QUERY catalog matches: {}, URL matches: {}, detail-cache matches: {}, detail-request matches: {}, catalog mismatches: {}, URL mismatches: {}, detail-cache mismatches: {}, detail-request mismatches: {}, detail requests this cycle: {}/{}, detail failures: {}, deferred by detail limit: {}, deferred by shared catalog detail budget: {}, shared budget={}/{}, persisted target mismatches: {}, persisted unavailable: {}, final eligible: {}. Target mode: {}.",
-                listings.size(),
-                acceptedFromCurrentExactScan,
-                deferredVintedModelOutsideCurrentScan,
-                matchedFromCatalogTitle,
-                matchedFromUrlSlug,
-                matchedFromDetailCache,
-                matchedAfterDetailRequest,
-                rejectedCatalogMismatch,
-                rejectedUrlMismatch,
-                rejectedFromDetailCache,
-                rejectedAfterDetailRequest,
-                detailRequestsThisCycle,
-                MAX_DETAIL_INSPECTIONS_PER_CYCLE,
-                detailInspectionFailures,
-                deferredByDetailLimit,
-                deferredByGlobalDetailBudget,
-                detailInspectionBudget.used(),
-                detailInspectionBudget.limit(),
-                persistedTargetMismatches,
-                persistedUnavailable,
-                eligibleListings.size(),
-                configuration.getTargetMode()
-        );
-
-        return eligibleListings;
-    }
-
-    private boolean hasCurrentExactModelProof(
-            ListingResponseDto listing,
-            BotConfigurationDto configuration,
-            Set<String> currentScanListingIds
-    ) {
-        return listing != null
-                && listing.listingId() != null
-                && usesExactVintedModelFilter(configuration)
-                && currentScanListingIds != null
-                && currentScanListingIds.contains(listing.listingId());
-    }
-
-    private boolean usesExactVintedModelFilter(
-            BotConfigurationDto configuration
-    ) {
-        if (configuration == null) {
-            return false;
-        }
-
-        String targetMode = configuration.getTargetMode();
-        return targetMode == null
-                || targetMode.isBlank()
-                || VINTED_MODEL.equalsIgnoreCase(targetMode.trim());
-    }
-
-    private String getConfiguredTargetLabel(
-            BotConfigurationDto configuration
-    ) {
-        if (configuration == null) {
-            return "null";
-        }
-
-        if ("SEARCH_QUERY".equalsIgnoreCase(configuration.getTargetMode())) {
-            return configuration.getSearchQuery();
-        }
-
-        if (usesExactVintedModelFilter(configuration)) {
-            return configuration.getModel();
-        }
-
-        return "unknown";
-    }
-
-    private String getFriendlyErrorMessage(Throwable exception) {
-        if (exception == null) {
-            return "Unknown error";
-        }
-
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) {
-            return exception.getClass().getSimpleName();
-        }
-
-        int firstLineEnd = message.indexOf('\n');
-        if (firstLineEnd > 0) {
-            return message.substring(0, firstLineEnd).trim();
-        }
-
-        return message.trim();
-    }
-
-    private record FinalVerificationResult(
-            List<ListingResponseDto> verifiedListings,
-            int checked,
-            int mismatches,
-            int failures,
-            int realItemPageRequests
-    ) {
     }
 }

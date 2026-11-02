@@ -1,8 +1,7 @@
 package pl.flipbot.playwright.worker;
 
-import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.util.RuntimeEnvironment;
 
-@Slf4j
 public record ScheduledActionLimitConfig(
         int maxRealOffersPerCatalogScan,
         int maxRealNextStepsPerCheck
@@ -35,9 +34,8 @@ public record ScheduledActionLimitConfig(
     }
 
     /**
-     * Controlled real-action mode remains deliberately capped at one action.
-     * Configurable throughput applies only after the dedicated production gate
-     * is fully armed.
+     * Production uses the configured limits. Dry-run retains the one-action
+     * planning limit; final-submit permissions are controlled separately.
      */
     public int effectiveMaxRealOffers(boolean productionModeEnabled) {
         return productionModeEnabled
@@ -51,39 +49,9 @@ public record ScheduledActionLimitConfig(
                 : 1;
     }
 
-    static int parseLimit(
-            String environmentName,
-            String rawValue,
-            int defaultValue
-    ) {
-        if (rawValue == null || rawValue.isBlank()) {
-            return defaultValue;
-        }
-
-        try {
-            int parsed = Integer.parseInt(rawValue.trim());
-
-            if (parsed < MIN_ACTION_LIMIT || parsed > MAX_ACTION_LIMIT) {
-                throw new IllegalArgumentException(
-                        "Value is outside allowed range "
-                                + MIN_ACTION_LIMIT
-                                + ".."
-                                + MAX_ACTION_LIMIT
-                );
-            }
-
-            return parsed;
-
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "[ACTION LIMIT CONFIG] Invalid {}='{}'. Using default {}. Allowed range is {}..{}.",
-                    environmentName,
-                    rawValue,
-                    defaultValue,
-                    MIN_ACTION_LIMIT,
-                    MAX_ACTION_LIMIT
-            );
-            return defaultValue;
-        }
+    static int parseLimit(String environmentName, String rawValue, int defaultValue) {
+        return RuntimeEnvironment.intValue(environmentName, rawValue, defaultValue,
+                MIN_ACTION_LIMIT, MAX_ACTION_LIMIT);
     }
+
 }

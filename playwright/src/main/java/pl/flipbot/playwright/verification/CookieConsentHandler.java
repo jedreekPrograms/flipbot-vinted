@@ -3,11 +3,13 @@ package pl.flipbot.playwright.verification;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.AriaRole;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Dismisses optional Vinted/CMP cookie consent overlays before normal bot UI
@@ -18,7 +20,8 @@ import java.util.Objects;
 @Slf4j
 public class CookieConsentHandler {
 
-    private static final int MAX_BUTTONS_TO_INSPECT = 80;
+    private static final int MAX_BUTTONS_TO_INSPECT = 8;
+    private static final double LABEL_READ_TIMEOUT_MS = 300;
 
     private static final List<String> ACCEPT_ALL_LABELS = List.of(
             "zgoda na wszystkie",
@@ -31,6 +34,13 @@ public class CookieConsentHandler {
             "agree to all",
             "alle akzeptieren",
             "alles akzeptieren"
+    );
+
+    private static final Pattern ACCEPT_ALL_NAME = Pattern.compile(
+            "^\\s*(?:" + String.join("|", ACCEPT_ALL_LABELS).replace(" ", "\\s+") + ")\\s*$",
+            // Playwright serializes Java Patterns to JavaScript and rejects
+            // UNICODE_CASE, even though Java's own matcher accepts that flag.
+            Pattern.CASE_INSENSITIVE
     );
 
     public boolean acceptAllIfVisible(Page page) {
@@ -46,7 +56,11 @@ public class CookieConsentHandler {
                 return true;
             }
 
-            Locator buttons = page.locator("button, [role='button']");
+            // Resolve only explicit accept-all controls in the browser. Walking
+            // every header/filter button added many round trips, and a node
+            // disappearing before innerText() could consume the default 30s.
+            Locator buttons = page.getByRole(AriaRole.BUTTON,
+                    new Page.GetByRoleOptions().setName(ACCEPT_ALL_NAME));
             int count = Math.min(buttons.count(), MAX_BUTTONS_TO_INSPECT);
 
             for (int index = 0; index < count; index++) {
@@ -65,7 +79,7 @@ public class CookieConsentHandler {
                 }
             }
         } catch (PlaywrightException exception) {
-            log.debug("[COOKIE CONSENT] Page changed while checking optional consent banner.");
+            log.debug("[COOKIE CONSENT] Optional consent probe could not complete.");
         } catch (RuntimeException exception) {
             log.debug("[COOKIE CONSENT] Optional consent banner probe failed: {}", exception.getMessage());
         }
@@ -94,6 +108,9 @@ public class CookieConsentHandler {
         }
 
         try {
+            if (!CookieConsentClickBudget.reserve(locator)) {
+                return false;
+            }
             locator.click(new Locator.ClickOptions().setTimeout(2_000));
             log.info("[COOKIE CONSENT] Accepted optional cookie/privacy banner using '{}'.", description);
             return true;
@@ -116,12 +133,14 @@ public class CookieConsentHandler {
 
     private String normalizedLabel(Locator locator) {
         try {
-            String text = locator.innerText();
+            String text = locator.innerText(new Locator.InnerTextOptions()
+                    .setTimeout(LABEL_READ_TIMEOUT_MS));
             if (text != null && !text.isBlank()) {
                 return normalize(text);
             }
 
-            String ariaLabel = locator.getAttribute("aria-label");
+            String ariaLabel = locator.getAttribute("aria-label", new Locator.GetAttributeOptions()
+                    .setTimeout(LABEL_READ_TIMEOUT_MS));
             return normalize(ariaLabel);
         } catch (PlaywrightException exception) {
             return "";

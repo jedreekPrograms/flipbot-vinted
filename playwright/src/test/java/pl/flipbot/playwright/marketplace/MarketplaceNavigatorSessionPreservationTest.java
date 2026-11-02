@@ -6,6 +6,7 @@ import com.microsoft.playwright.Page;
 import org.junit.Test;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.session.SessionManager;
+import pl.flipbot.playwright.session.VintedAuthenticationRequiredException;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -77,6 +78,25 @@ public class MarketplaceNavigatorSessionPreservationTest {
 
         assertTrue(failure.getMessage().contains("Refusing to infer authentication"));
         verify(f.page).navigate(eq(MarketplaceUrls.HOME), any(Page.NavigateOptions.class));
+        f.assertSessionUntouched();
+    }
+
+    @Test
+    public void protectedInboxRedirectStopsWithoutRetriesOrDeletingSession() {
+        Fixture f = new Fixture();
+        f.url.set("https://www.vinted.pl/member/register/select_type?ref_url=%2Finbox%2F123");
+        assertThrows(VintedAuthenticationRequiredException.class,
+                () -> f.navigator.goToTrustedVintedUrl("https://www.vinted.pl/inbox/123"));
+        verify(f.page, times(1)).navigate(anyString(), any(Page.NavigateOptions.class));
+        verify(f.page, never()).waitForTimeout(anyDouble());
+        f.assertSessionUntouched();
+    }
+
+    @Test
+    public void ordinaryCatalogNavigationDoesNotRequireLogin() {
+        Fixture f = new Fixture();
+        f.url.set(MarketplaceUrls.CATALOG);
+        f.navigator.goToTrustedVintedUrl(MarketplaceUrls.CATALOG);
         f.assertSessionUntouched();
     }
 

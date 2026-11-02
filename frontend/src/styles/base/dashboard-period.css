@@ -1,0 +1,89 @@
+.dashboard-period-section {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+
+    gap: 20px;
+
+    margin-top: 30px;
+    margin-bottom: 14px;
+}
+
+.dashboard-period-section .dashboard-section-header {
+    margin: 0;
+}
+
+.dashboard-period-switch {
+    display: flex;
+
+    padding: 4px;
+
+    border: 1px solid #e2e6ec;
+    border-radius: 11px;
+
+    background: #f7f9fb;
+}
+
+.dashboard-period-button {
+    min-height: 34px;
+
+    padding:
+        0
+        13px;
+
+    border: 0;
+    border-radius: 8px;
+
+    background: transparent;
+    color: #778193;
+
+    font-size: 12px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.dashboard-period-button:hover:not(:disabled) {
+    color: #354052;
+}
+
+.dashboard-period-button-active {
+    background: #ffffff;
+    color: #16785b;
+
+    box-shadow:
+        0 1px 4px rgba(15, 23, 42, 0.09);
+}
+
+.dashboard-period-button:disabled {
+    cursor: default;
+    opacity: 0.65;
+}
+
+@media (max-width: 750px) {
+
+    .dashboard-period-section {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .dashboard-period-switch {
+        display: grid;
+        grid-template-columns:
+            repeat(
+                4,
+                1fr
+            );
+    }
+
+    .dashboard-period-button {
+        padding:
+            0
+            7px;
+    }
+}

@@ -17,6 +17,7 @@ public final class MarketplaceUrls {
     public static final String CATALOG =
             "https://www.vinted.pl/catalog";
 
+    // The diagnostic patch also supports the original snapshot's navigator.
     public static final String INBOX =
             "https://www.vinted.pl/inbox";
 
@@ -104,6 +105,17 @@ public final class MarketplaceUrls {
         } catch (RuntimeException exception) {
             return false;
         }
+    }
+
+    public static boolean isAuthenticationUrl(String rawUrl) {
+        if (!isVintedUrl(rawUrl)) {
+            return false;
+        }
+        String path = URI.create(rawUrl.trim()).getPath();
+        return path != null && (path.equals("/member/login")
+                || path.startsWith("/member/login/")
+                || path.equals("/member/register")
+                || path.startsWith("/member/register/"));
     }
 
     private static String normalize(String value) {

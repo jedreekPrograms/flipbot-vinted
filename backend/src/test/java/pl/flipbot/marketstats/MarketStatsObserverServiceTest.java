@@ -6,7 +6,6 @@ import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.BotStatus;
 import pl.flipbot.marketstats.dto.MarketStatsObserverPlaywrightResponse;
-import pl.flipbot.marketstats.dto.MarketStatsObserverResponse;
 
 import java.util.Optional;
 
@@ -68,7 +67,7 @@ class MarketStatsObserverServiceTest {
                 });
 
         MarketStatsObserverService service = new MarketStatsObserverService(repository);
-        MarketStatsObserverResponse response = service.getObserver().orElseThrow();
+        MarketStatsObserverPlaywrightResponse response = service.getObserverForPlaywright().orElseThrow();
 
         assertEquals(91L, response.id());
         assertEquals("Anonymous Market Observer", response.name());

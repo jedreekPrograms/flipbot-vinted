@@ -71,6 +71,8 @@ public final class VintedSessionBlockDetector {
 
         return decomposed
                 .replaceAll("\\p{M}+", "")
+                // Unlike ą/ś/ż, Polish ł has no NFD decomposition.
+                .replace('ł', 'l')
                 .replace('\u00a0', ' ')
                 .replaceAll("\\s+", " ")
                 .trim();

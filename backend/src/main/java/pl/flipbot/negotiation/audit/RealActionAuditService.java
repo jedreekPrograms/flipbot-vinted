@@ -15,7 +15,6 @@ import pl.flipbot.negotiation.guard.RealActionGuardRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
@@ -124,17 +123,6 @@ public class RealActionAuditService {
                 guard.getActionType(),
                 guard.getStepNumber()
         );
-    }
-
-    @Transactional(readOnly = true)
-    public List<RealActionAuditResponse> getForBot(
-            Long botId
-    ) {
-        return realActionAuditRepository
-                .findByBotIdOrderByCreatedAtDesc(botId)
-                .stream()
-                .map(this::map)
-                .toList();
     }
 
     private RealActionAuditResponse recordWithLockedListing(

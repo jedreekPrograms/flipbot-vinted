@@ -1,10 +1,5 @@
 package pl.flipbot.playwright.worker;
 
-import lombok.extern.slf4j.Slf4j;
-import pl.flipbot.playwright.api.BotApiClient;
-import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
-import pl.flipbot.playwright.model.RunningBotDto;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -18,6 +13,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.api.BotApiClient;
+import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
+import pl.flipbot.playwright.model.RunningBotDto;
 
 @Slf4j
 public class WorkerManager implements AutoCloseable {
@@ -37,10 +36,7 @@ public class WorkerManager implements AutoCloseable {
             new RuntimeTelemetryReporter();
 
     private final BotRunScheduler scheduler =
-            new BotRunScheduler(
-                    config,
-                    telemetryReporter
-            );
+            new BotRunScheduler(telemetryReporter);
 
     private final BotSessionPreviewRegistry sessionPreviewRegistry =
             new BotSessionPreviewRegistry();

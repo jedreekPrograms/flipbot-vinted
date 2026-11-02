@@ -13,7 +13,7 @@
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <playwright.version>1.54.0</playwright.version>
+        <playwright.version>1.63.0</playwright.version>
         <jackson.version>2.20.0</jackson.version>
         <lombok.version>1.18.38</lombok.version>
         <slf4j.version>2.0.17</slf4j.version>
@@ -71,12 +71,6 @@
 
     </dependencies>
 
-    <!--
-        The public repository compiles and runs its unit suite without access
-        to the private implementation. On an authorized development machine,
-        bootstrap-private-core.ps1 installs the private artifact into ~/.m2
-        and creates .private-core.enabled, activating this runtime dependency.
-    -->
     <profiles>
         <profile>
             <id>private-vinted-core</id>
@@ -95,4 +89,13 @@
         </profile>
     </profiles>
 
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>

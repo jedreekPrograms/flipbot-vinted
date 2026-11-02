@@ -11,3 +11,11 @@
 # Private Playwright core checkout (never commit)
 .private/
 playwright/.private-core.enabled
+
+# Panel generated from the matching frontend during the backend build
+/backend/src/main/resources/static/
+
+# Local environment overrides
+**/.env
+**/.env.*
+!**/.env.example

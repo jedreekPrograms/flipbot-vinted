@@ -1,0 +1,426 @@
+.action-required-page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.action-required-grid {
+    grid-template-columns:
+        repeat(
+            auto-fit,
+            minmax(340px, 1fr)
+        );
+    gap: 18px;
+}
+
+.action-required-card {
+    border: 1px solid #e0e5ee;
+    border-radius: 16px;
+    padding: 20px;
+}
+
+.action-required-card-header {
+    gap: 18px;
+}
+
+.action-required-card-header h2 {
+    margin: 8px 0 0;
+    color: #202b42;
+    font-size: 17px;
+    line-height: 1.4;
+}
+
+.action-required-badge {
+    padding: 5px 9px;
+    color: #8b5a00;
+    background: #fff2ce;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+}
+
+.action-required-bot {
+    flex: 0 0 auto;
+    border-radius: 999px;
+    padding: 6px 10px;
+    color: #566278;
+    background: #eef1f5;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.action-required-prices {
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+    margin-top: 20px;
+}
+
+.action-required-prices > div {
+    gap: 5px;
+    border-radius: 11px;
+    padding: 13px;
+    background: #f6f8fb;
+}
+
+.action-required-prices span,
+.action-required-savings span {
+    color: #8792a6;
+    font-size: 11px;
+}
+
+.action-required-prices strong {
+    font-size: 18px;
+}
+
+.original-price {
+    color: #7e8899;
+    text-decoration: line-through;
+}
+
+.negotiated-price {
+    color: #287645;
+}
+
+.action-required-savings {
+    margin-top: 10px;
+    border-radius: 10px;
+    padding: 11px 13px;
+    color: #287645;
+    background: #eef8f2;
+}
+
+.action-required-savings strong {
+    font-size: 14px;
+}
+
+.action-required-details {
+    margin: 18px 0 0;
+}
+
+.action-required-details > div {
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    border-bottom: 1px solid #edf0f5;
+    padding: 10px 0;
+}
+
+.action-required-details dt {
+    color: #8792a6;
+}
+
+.action-required-details dd {
+    color: #3e4960;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+}
+
+.action-required-details dd span {
+    color: #9ba4b3;
+}
+
+.action-required-actions {
+    justify-content: flex-end;
+    margin-top: 18px;
+}
+
+.action-required-actions a {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+}
+
+.action-required-actions .primary-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.action-required-session-warning {
+    margin-top: 12px;
+    border-radius: 9px;
+    padding: 10px 12px;
+    color: #80631c;
+    background: #fff8e5;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.action-required-empty {
+    min-height: 300px;
+    justify-content: center;
+}
+
+.action-required-empty-icon {
+    display: grid;
+    width: 50px;
+    height: 50px;
+    place-items: center;
+    color: #287645;
+    background: #eaf7ef;
+    font-size: 21px;
+    font-weight: 900;
+}
+
+.action-required-empty h2 {
+    margin: 16px 0 8px;
+    color: #263149;
+    font-size: 17px;
+}
+
+.action-required-empty p {
+    max-width: 460px;
+    color: #8490a5;
+    font-size: 13px;
+}
+
+@media (max-width: 700px) {
+    .action-required-page-header {
+        flex-direction: column;
+    }
+
+    .action-required-actions {
+        flex-direction: column;
+    }
+
+    .action-required-actions > * {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* =========================================================
+   ACTION REQUIRED
+   ========================================================= */
+
+.action-required-grid {
+    display: grid;
+    grid-template-columns: repeat(
+        auto-fit,
+        minmax(420px, 1fr)
+    );
+    gap: 24px;
+    margin-top: 24px;
+}
+
+.action-required-card {
+    position: relative;
+
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+
+    padding: 26px;
+
+    background: #ffffff;
+
+    border: 1px solid #e7eaf0;
+    border-radius: 18px;
+
+    box-shadow:
+        0 2px 5px rgba(15, 23, 42, 0.04),
+        0 12px 30px rgba(15, 23, 42, 0.06);
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        border-color 0.2s ease;
+}
+
+.action-required-card:hover {
+    transform: translateY(-2px);
+
+    border-color: #d9dee8;
+
+    box-shadow:
+        0 4px 10px rgba(15, 23, 42, 0.05),
+        0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+/* =========================================================
+   HEADER KARTY
+   ========================================================= */
+
+.action-required-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+}
+
+.action-required-card-header h2 {
+    margin: 10px 0 0;
+
+    font-size: 22px;
+    line-height: 1.25;
+    font-weight: 700;
+
+    color: #172033;
+}
+
+.action-required-badge {
+    display: inline-flex;
+    align-items: center;
+
+    padding: 6px 10px;
+
+    border-radius: 999px;
+
+    background: #fff4e5;
+    color: #b45309;
+
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.action-required-bot {
+    flex-shrink: 0;
+
+    padding: 7px 11px;
+
+    border: 1px solid #e3e7ee;
+    border-radius: 10px;
+
+    background: #f8fafc;
+    color: #586174;
+
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* =========================================================
+   CENY
+   ========================================================= */
+
+.action-required-prices {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.action-required-prices > div {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+
+    padding: 16px;
+
+    background: #f8fafc;
+
+    border: 1px solid #edf0f4;
+    border-radius: 13px;
+}
+
+.action-required-prices span {
+    color: #747d8f;
+
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.action-required-prices strong {
+    font-size: 21px;
+    font-weight: 750;
+}
+
+.original-price {
+    color: #7c8493;
+}
+
+.negotiated-price {
+    color: #16803c;
+}
+
+/* =========================================================
+   OSZCZĘDNOŚĆ
+   ========================================================= */
+
+.action-required-savings {
+
+    padding: 13px 16px;
+
+    background: #ecfdf3;
+
+    border: 1px solid #ccefd8;
+    border-radius: 12px;
+}
+
+.action-required-savings span {
+    color: #397653;
+
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.action-required-savings strong {
+    color: #117a37;
+
+    font-size: 17px;
+    font-weight: 750;
+}
+
+/* =========================================================
+   SZCZEGÓŁY
+   ========================================================= */
+
+.action-required-details {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+
+    margin: 0;
+
+    overflow: hidden;
+
+    border: 1px solid #e7eaf0;
+    border-radius: 13px;
+}
+
+.action-required-details > div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+
+    padding: 13px 15px;
+
+    background: #ffffff;
+}
+
+.action-required-details > div:nth-child(odd) {
+    border-right: 1px solid #e7eaf0;
+}
+
+.action-required-details > div:nth-child(-n + 2) {
+    border-bottom: 1px solid #e7eaf0;
+}
+
+.action-required-details dt {
+    color: #8a93a3;
+
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+}
+
+.action-required-details dd {
+    margin: 0;
+
+    color: #30394b;
+
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.action-required-details dd span {
+    color: #8a93a3;
+
+    font-weight: 500;
+}
+
+/* =========================================================
+   KONTO VINTED / LOGIN I HASŁO
+   ========================================================= */

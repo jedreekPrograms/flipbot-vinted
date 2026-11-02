@@ -15,7 +15,7 @@ public class LoginAuthenticationEvidenceTest {
     public void absenceOfKnownControlsIsNotAuthenticationEvidence() {
         Page page = pageWithAuthSignals(false, false);
 
-        String signal = new LoginService(null)
+        String signal = new LoginSessionVerifier(null)
                 .authenticatedSignal(page);
 
         assertNull(signal);
@@ -27,7 +27,7 @@ public class LoginAuthenticationEvidenceTest {
 
         assertEquals(
                 "header-conversations-button",
-                new LoginService(null).authenticatedSignal(page)
+                new LoginSessionVerifier(null).authenticatedSignal(page)
         );
     }
 
@@ -37,7 +37,7 @@ public class LoginAuthenticationEvidenceTest {
 
         assertEquals(
                 "visible /inbox link",
-                new LoginService(null).authenticatedSignal(page)
+                new LoginSessionVerifier(null).authenticatedSignal(page)
         );
     }
 
@@ -46,9 +46,13 @@ public class LoginAuthenticationEvidenceTest {
             boolean inboxVisible
     ) {
         Page page = mock(Page.class);
+        when(page.url()).thenReturn("https://www.vinted.pl/");
 
         Locator conversations = locator(conversationsVisible);
         Locator inbox = locator(inboxVisible);
+        when(inbox.getAttribute(org.mockito.ArgumentMatchers.eq("href"),
+                org.mockito.ArgumentMatchers.any(Locator.GetAttributeOptions.class)))
+                .thenReturn("/inbox");
 
         when(page.getByTestId(
                 LoginSelectors.CONVERSATIONS_BUTTON

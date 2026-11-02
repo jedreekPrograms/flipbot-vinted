@@ -4,6 +4,11 @@ final class VintedInformationalDialogGuard {
 
     private static final String SCRIPT = """
             (() => {
+                // UI controls belong to the main Vinted document, never ad or challenge frames.
+                if (window.top !== window
+                        || !/(^|\\.)vinted\\.pl$/.test(location.hostname)) {
+                    return;
+                }
                 const ELECTRONICS_OVERLAY_SELECTOR =
                     '[data-testid="electronics-verification-pop-up-dialog--overlay"]';
 
@@ -66,6 +71,7 @@ final class VintedInformationalDialogGuard {
                     );
                 };
 
+                const lastClick = new WeakMap();
                 const clickExactButton = (overlay, acceptedLabels) => {
                     const buttons = Array.from(
                         overlay.querySelectorAll("button")
@@ -78,7 +84,11 @@ final class VintedInformationalDialogGuard {
                         }
 
                         if (acceptedLabels.has(controlLabel(button))) {
-                            button.click();
+                            const now = Date.now();
+                            if (now - (lastClick.get(button) ?? -Infinity) >= 1000) {
+                                lastClick.set(button, now);
+                                button.click();
+                            }
                             return true;
                         }
                     }
@@ -123,10 +133,10 @@ final class VintedInformationalDialogGuard {
                     }
 
                     scheduled = true;
-                    queueMicrotask(() => {
+                    setTimeout(() => {
                         scheduled = false;
                         dismissElectronicsVerification();
-                    });
+                    }, 100);
                 };
 
                 stabilize();

@@ -1,5 +1,10 @@
 package pl.flipbot.negotiation.guard;
 
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,12 +16,6 @@ import pl.flipbot.listing.ListingStatus;
 import pl.flipbot.marketplace.Marketplace;
 import pl.flipbot.negotiation.audit.RealActionAuditService;
 import pl.flipbot.negotiation.guard.dto.AcquireRealActionGuardRequest;
-
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +45,7 @@ class RealActionGuardCrossBotClaimTest {
                 listingRepository,
                 guardRepository,
                 auditService,
-                jdbcTemplate
+                new MarketplaceNegotiationClaims(jdbcTemplate)
         );
     }
 

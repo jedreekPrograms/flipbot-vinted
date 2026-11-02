@@ -3,14 +3,13 @@ package pl.flipbot.playwright.session;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.BrowserContext;
-import lombok.extern.slf4j.Slf4j;
-
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class SessionManager {
@@ -212,6 +211,10 @@ public class SessionManager {
                 stagedRoot
         );
 
+        if (stagedRoot.equals(activeRoot)) {
+            return;
+        }
+
         if (activeRoot != null) {
             preserveRotatingBackup(botId, activeSession, "last-known-good");
         }
@@ -219,61 +222,6 @@ public class SessionManager {
         installValidatedFile(botId, stagedSession, activeSession);
     }
 
-    public boolean restoreLastKnownGood(Long botId) {
-        Path activeSession = sessionFile(botId);
-        Path backup = sessionDirectory
-                .resolve(BACKUP_DIRECTORY_NAME)
-                .resolve("bot-" + botId + "-last-known-good.json");
-
-        if (!Files.exists(backup)) {
-            log.warn(
-                    "[SESSION] No last-known-good backup is available for bot {}. Active session remains unchanged: {}",
-                    botId,
-                    activeSession
-            );
-            return false;
-        }
-
-        Path stagedRestore = null;
-
-        try {
-            stagedRestore = Files.createTempFile(
-                    sessionDirectory,
-                    ".bot-" + botId + "-restore-",
-                    ".json.tmp"
-            );
-            Files.copy(
-                    backup,
-                    stagedRestore,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-            validateStagedSession(botId, stagedRestore);
-
-            if (Files.exists(activeSession)) {
-                preserveRotatingBackup(botId, activeSession, "recovery");
-            }
-
-            installValidatedFile(botId, stagedRestore, activeSession);
-
-            log.warn(
-                    "[SESSION] Restored last-known-good session for bot {} after the current browser state became untrustworthy. backup={}, active={}",
-                    botId,
-                    backup,
-                    activeSession
-            );
-            return true;
-        } catch (IOException exception) {
-            throw new IllegalStateException(
-                    "Could not restore last-known-good session for bot " + botId
-                            + "; the active session was left unchanged whenever possible.",
-                    exception
-            );
-        } finally {
-            if (stagedRestore != null) {
-                deleteQuietly(stagedRestore);
-            }
-        }
-    }
 
     private void installValidatedFile(
             Long botId,
@@ -379,20 +327,6 @@ public class SessionManager {
         }
     }
 
-    public void invalidateSession(Long botId) {
-        Path source = sessionFile(botId);
-
-        if (!Files.exists(source)) {
-            log.warn(
-                    "[SESSION] Stored session for bot {} disappeared before a recovery backup could be created: {}",
-                    botId,
-                    source
-            );
-            return;
-        }
-
-        preserveRotatingBackup(botId, source, "recovery");
-    }
 
     private void preserveRotatingBackup(
             Long botId,

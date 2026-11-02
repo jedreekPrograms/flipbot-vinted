@@ -11,10 +11,16 @@ import {
 
 const BOTS_BASE_URL = "/api/bots";
 
-export interface BotOfferQuota {
-    limit: number;
-    used: number;
-    remaining: number;
+export interface BotOverview {
+    botId: number;
+    activity: BotDailyActivity | null;
+    runtime: BotRuntimeState | null;
+}
+
+export async function getBotsOverview(): Promise<BotOverview[]> {
+    const response = await fetch(`${BOTS_BASE_URL}/overview`);
+    await assertApiResponse(response, "Nie udało się odświeżyć aktywności botów.");
+    return response.json() as Promise<BotOverview[]>;
 }
 
 export interface BotDailyActivity {
@@ -89,57 +95,6 @@ export async function getBotEditCapabilities(
     );
 
     return response.json() as Promise<BotEditCapabilities>;
-}
-
-export async function getBotOfferQuota(
-    botId: number,
-): Promise<BotOfferQuota> {
-    const response = await fetch(`${BOTS_BASE_URL}/${botId}/offer-quota`);
-
-    if (response.status === 404) {
-        throw new Error(`Nie znaleziono bota ${botId}.`);
-    }
-
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać dziennego limitu ofert dla bota ${botId}. Status HTTP: ${response.status}.`,
-    );
-
-    return response.json() as Promise<BotOfferQuota>;
-}
-
-export async function getBotDailyActivity(
-    botId: number,
-): Promise<BotDailyActivity> {
-    const response = await fetch(`${BOTS_BASE_URL}/${botId}/activity/today`);
-
-    if (response.status === 404) {
-        throw new Error(`Nie znaleziono bota ${botId}.`);
-    }
-
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać dzisiejszej aktywności bota ${botId}. Status HTTP: ${response.status}.`,
-    );
-
-    return response.json() as Promise<BotDailyActivity>;
-}
-
-export async function getBotRuntimeState(
-    botId: number,
-): Promise<BotRuntimeState> {
-    const response = await fetch(`${BOTS_BASE_URL}/${botId}/runtime`);
-
-    if (response.status === 404) {
-        throw new Error(`Nie znaleziono stanu runtime bota ${botId}.`);
-    }
-
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać stanu runtime bota ${botId}. Status HTTP: ${response.status}.`,
-    );
-
-    return response.json() as Promise<BotRuntimeState>;
 }
 
 export async function createBot(request: CreateBotRequest): Promise<void> {

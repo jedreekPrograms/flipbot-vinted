@@ -1,10 +1,9 @@
 package pl.flipbot.playwright.worker;
 
-import org.junit.Test;
-import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
-
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.junit.Test;
+import pl.flipbot.playwright.api.runtime.RuntimeTelemetryReporter;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -16,7 +15,6 @@ public class BotWorkerSlotRetirementTest {
         CountDownLatch pollEntered = new CountDownLatch(1);
         RuntimeTelemetryReporter telemetry = new RuntimeTelemetryReporter();
         BotRunScheduler scheduler = new PollOnlyScheduler(
-                config(),
                 telemetry,
                 pollEntered
         );
@@ -65,7 +63,6 @@ public class BotWorkerSlotRetirementTest {
                 120L,
                 900L,
                 60L,
-                60L,
                 600L,
                 180L,
                 30L,
@@ -78,11 +75,10 @@ public class BotWorkerSlotRetirementTest {
         private final CountDownLatch pollEntered;
 
         private PollOnlyScheduler(
-                WorkerRuntimeConfig config,
                 RuntimeTelemetryReporter telemetryReporter,
                 CountDownLatch pollEntered
         ) {
-            super(config, telemetryReporter);
+            super(telemetryReporter);
             this.pollEntered = pollEntered;
         }
 

@@ -7,7 +7,6 @@ import pl.flipbot.bot.dto.BotEditCapabilitiesResponse;
 import pl.flipbot.bot.dto.BotPlaywrightResponse;
 import pl.flipbot.bot.dto.BotResponse;
 import pl.flipbot.bot.dto.CreateBotRequest;
-import pl.flipbot.bot.dto.RunningBotResponse;
 import pl.flipbot.bot.dto.UpdateBotRequest;
 
 import java.util.List;
@@ -66,11 +65,6 @@ public class BotController {
         botDeletionService.deleteBot(botId);
     }
 
-    @GetMapping("/running")
-    public List<RunningBotResponse> getRunningBotIds() {
-        return botService.getRunningBotIds();
-    }
-
     @PatchMapping("/{botId}/start")
     public void startBot(
             @PathVariable Long botId
@@ -91,4 +85,5 @@ public class BotController {
     ) {
         return botService.getPlaywrightBot(botId);
     }
+    //
 }

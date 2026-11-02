@@ -15,9 +15,9 @@ import java.util.Objects;
  * route came from the exact expected conversation. Any unrelated redirect
  * remains a hard mismatch.</p>
  */
-final class ConversationIdentityResolver {
+public final class ConversationIdentityResolver {
 
-    ConversationIdentityAssessment assess(
+    public ConversationIdentityAssessment assess(
             String expectedConversationId,
             String currentUrl
     ) {
@@ -213,7 +213,7 @@ final class ConversationIdentityResolver {
         }
     }
 
-    record ConversationIdentityAssessment(
+    public record ConversationIdentityAssessment(
             MatchType matchType,
             String expectedConversationId,
             String actualConversationId,
@@ -267,11 +267,11 @@ final class ConversationIdentityResolver {
             );
         }
 
-        boolean matchesExpectedConversation() {
+        public boolean matchesExpectedConversation() {
             return matchType != MatchType.MISMATCH;
         }
 
-        boolean canonicalRedirect() {
+        public boolean canonicalRedirect() {
             return matchType == MatchType.CANONICAL_REDIRECT;
         }
     }

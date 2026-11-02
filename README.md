@@ -2,9 +2,9 @@
 
 A Java/Spring Boot application for monitoring marketplace listings, coordinating browser workers and managing persistent negotiation workflows. The project combines a PostgreSQL-backed API, a React dashboard, a Java Playwright runtime and a mobile companion.
 
-**Status:** active development. The working application is demonstrated below. Some runtime functionality depends on a private module, and the database bootstrap still has limitations described under [Local development](#local-development).
+**Status:** active development. The working application is demonstrated below. The public modules include the runtime refactor; Vinted conversation inspection remains in a separately installed private core.
 
-[![CI](https://img.shields.io/github/actions/workflow/status/jedreekPrograms/FlipBot/ci.yml?branch=main&label=CI)](https://github.com/jedreekPrograms/FlipBot/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/jedreekPrograms/flipbot-vinted/ci.yml?branch=main&label=CI)](https://github.com/jedreekPrograms/flipbot-vinted/actions/workflows/ci.yml)
 
 ## Watch the application
 
@@ -62,7 +62,7 @@ A separate market-statistics observer collects read-oriented data without sharin
 | [Local database](docker/) | PostgreSQL 17 through Docker Compose |
 | [CI](.github/workflows/ci.yml) | Backend and browser-module tests, frontend checks and mobile type-checking |
 
-Flyway migration files are present, but the checked-in backend currently disables their execution. See the database setup requirements below.
+Flyway initializes a fresh database and upgrades a recognized existing FlipBot schema. The backend build also bundles the matching dashboard and records its asset hashes, so a packaged backend cannot silently serve an older panel.
 
 ## Local development
 
@@ -73,7 +73,7 @@ Flyway migration files are present, but the checked-in backend currently disable
 - Docker with Compose for the local database.
 - Browser execution additionally needs Chromium/Playwright and the authorized private core.
 
-**A fresh clone is not currently a one-command full-runtime demo.** The database schema needs an existing prepared baseline, and the real browser entry point requires access to the private core. The public source and unit tests can be reviewed independently; the video shows the complete running application.
+The backend and dashboard can be built from a fresh clone. Real negotiation workers additionally require access to the private core. Public tests and browser fixtures run without it; the fixtures use local HTML rather than marketplace accounts.
 
 ### Database
 
@@ -82,9 +82,9 @@ cd docker
 docker compose up -d
 ```
 
-Compose creates a local `flipbot` database on `localhost:5433`. The checked-in backend configuration instead points to `flipbot_pr74`, with Hibernate schema creation and Flyway both disabled. Starting the container alone therefore does not initialize a usable application schema.
+Compose and the backend both default to `flipbot_pr74` on `localhost:5433`. Override `FLIPBOT_DB_HOST`, `FLIPBOT_DB_PORT`, `FLIPBOT_DB_NAME`, `FLIPBOT_DB_USER` and `FLIPBOT_DB_PASSWORD` as needed; Spring datasource overrides are also supported. The checked-in `postgres` credentials are for local development.
 
-Use an existing prepared database and explicitly override `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME` and `SPRING_DATASOURCE_PASSWORD` as needed. Do not apply the historical migration chain to a blank database without first establishing its baseline.
+On first startup, Flyway applies the fresh schema and migrations, then Hibernate validates it. Existing installations with the recognized FlipBot tables are baselined at version 100 and upgraded through the subsequent migrations. Partial schemas are rejected. Back up an existing database before its first startup with the new version; keep the original encryption key when reusing encrypted account credentials.
 
 ### Backend and dashboard
 
@@ -97,12 +97,12 @@ python -c "import os,base64; print(base64.b64encode(os.urandom(32)).decode())"
 From `backend/`:
 
 ```shell
-bash ./mvnw spring-boot:run
+bash ./mvnw compile spring-boot:run
 ```
 
-On Windows, use `.\mvnw.cmd spring-boot:run`. The backend listens on port `8081`.
+On Windows, use `.\mvnw.cmd compile spring-boot:run`. The backend build needs Node/npm and builds the matching frontend automatically. Open the bundled panel at **http://localhost:8081**. `bash ./mvnw verify` also produces an executable JAR containing the verified panel.
 
-In a second terminal:
+For frontend development with hot reload, optionally use a second terminal:
 
 ```shell
 cd frontend
@@ -122,7 +122,15 @@ On an authorized Windows machine, from `playwright/`:
 
 The script checks out the private `jedreekPrograms/Flipbot-Core` repository into an ignored directory, runs its tests, installs the private Maven artifact and activates the local profile. It uses the machine's configured Git credentials. Reload the Maven project after bootstrapping.
 
-Run `pl.flipbot.playwright.FlipBotPlaywrightApplication` for scheduled multi-bot execution. Without the private core, this entry point deliberately refuses to start.
+Install the browser matching Playwright 1.63.0 from `playwright/`:
+
+```shell
+mvn "-Dexec.mainClass=com.microsoft.playwright.CLI" "-Dexec.args=install chromium" exec:java
+```
+
+Run `pl.flipbot.playwright.FlipBotPlaywrightApplication` for scheduled multi-bot execution. The default engine is bundled Chromium; `FLIPBOT_BROWSER_ENGINE=chrome` selects installed Chrome. Without the private core, this entry point deliberately refuses to start.
+
+Sessions are saved under the ignored `playwright/sessions/` directory; `FLIPBOT_SESSION_DIR` can override it. Only one runtime may own a session directory. The public repository contains the orchestration and the bridge API, while conversation DOM/activity inspection stays in the private core.
 
 ### Mobile access
 
@@ -136,10 +144,16 @@ Run these commands from the corresponding module directories:
 | --- | --- |
 | `backend/` | `bash ./mvnw test`; Windows: `.\mvnw.cmd test` |
 | `playwright/` | `mvn test` |
-| `frontend/` | `npm ci`, `npm run lint`, `npm run build` |
+| `frontend/` | `npm ci`, `npm run lint`, `npm run test:refactor`, `npm run build` |
 | `mobile/` | `npm install`, `npm run typecheck` |
 
-Backend tests need PostgreSQL and the encryption key. The [CI workflow](.github/workflows/ci.yml) documents its disposable database configuration: Flyway disabled and Hibernate `create-drop`. Private-core tests run in its own repository.
+Backend tests need PostgreSQL and the encryption key. The [CI workflow](.github/workflows/ci.yml) runs with Flyway enabled and Hibernate validation, including fresh-schema and existing-schema upgrade tests. It also checks the actual packaged dashboard and local browser fixtures on Linux and Windows. Private-core tests run in its own repository; its API compatibility test runs here when the private artifact is installed.
+
+The UI regression suite compares against the previous **public** release. If using a shallow clone, fetch its baseline before running it:
+
+```shell
+git fetch --no-tags --depth=1 origin 184d99a80e4b8b75e86483e935ec0de206394a23
+```
 
 ## Runtime configuration
 
@@ -150,7 +164,6 @@ FLIPBOT_WORKER_COUNT
 FLIPBOT_SYNC_INTERVAL_SECONDS
 FLIPBOT_NEGOTIATION_CHECK_INTERVAL_SECONDS
 FLIPBOT_CATALOG_SCAN_INTERVAL_SECONDS
-FLIPBOT_PRICE_PROBE_INTERVAL_SECONDS
 FLIPBOT_FAILURE_RETRY_SECONDS
 FLIPBOT_RATE_LIMIT_RETRY_SECONDS
 FLIPBOT_SHUTDOWN_TIMEOUT_SECONDS
@@ -159,7 +172,6 @@ FLIPBOT_SCHEDULER_HEADLESS
 
 ## Current next steps
 
-- Establish a clean Flyway baseline and reproducible empty-database setup.
 - Add a public demonstration mode that does not need private browser integration.
 - Extend regression coverage and runtime tracing.
 - Improve deployment packaging and the screenshot gallery.

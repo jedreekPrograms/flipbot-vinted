@@ -5,6 +5,7 @@ import pl.flipbot.playwright.api.audit.RealActionAuditClient;
 import pl.flipbot.playwright.api.audit.dto.RealActionAuditRequestDto;
 import pl.flipbot.playwright.api.listing.dto.ListingResponseDto;
 import pl.flipbot.playwright.context.BotContext;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.math.BigDecimal;
 import java.util.Objects;
@@ -134,14 +135,7 @@ public class RealActionAuditCoordinator {
     private String friendlyMessage(
             Throwable exception
     ) {
-        if (exception == null) {
-            return "Unknown post-submit failure";
-        }
-
-        String message = exception.getMessage();
-        String normalized = message == null || message.isBlank()
-                ? exception.getClass().getSimpleName()
-                : message.lines().findFirst().orElse(message).trim();
+        String normalized = ErrorMessages.firstLine(exception, "Unknown post-submit failure");
 
         return normalized.length() <= 1000
                 ? normalized

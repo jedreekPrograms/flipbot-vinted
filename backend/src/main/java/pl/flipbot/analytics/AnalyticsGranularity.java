@@ -6,3 +6,4 @@ public enum AnalyticsGranularity {
     MONTH,
     YEAR
 }
+//

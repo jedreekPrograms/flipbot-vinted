@@ -168,16 +168,12 @@ public class ConversationAvailabilityDetector {
             Page page,
             String conversationId
     ) {
-        String currentUrl = page.url();
-
-        if (currentUrl == null
-                || currentUrl.isBlank()) {
+        try {
+            return new ConversationIdentityResolver().assess(conversationId, page.url())
+                    .matchesExpectedConversation();
+        } catch (IllegalArgumentException exception) {
             return false;
         }
-
-        return currentUrl.contains(
-                "/inbox/" + conversationId
-        );
     }
 
     private static String normalize(
@@ -193,6 +189,7 @@ public class ConversationAvailabilityDetector {
                 )
                 .replaceAll("\\p{M}+", "")
                 .toLowerCase(Locale.ROOT)
+                .replace('ł', 'l')
                 .replaceAll("\\s+", " ")
                 .trim();
     }

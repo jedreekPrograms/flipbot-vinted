@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -85,6 +87,27 @@ class DailyOfferQuotaServiceTest {
         assertEquals(12, response.limit());
         assertEquals(5, response.used());
         assertEquals(7, response.remaining());
+    }
+
+    @Test
+    void activitySnapshotReadsAuditsOnceUnderTheBotLockAndRepairsQuotaFromThatSameRead() {
+        RealActionAudit action = audit(UUID.randomUUID(), RealActionAuditOutcome.CONFIRMED);
+        when(auditRepository.findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                eq(3L), any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(List.of(action));
+        DailyOfferQuota quota = quota(0);
+        when(quotaRepository.findByBot_IdAndUsageDate(eq(3L), any(LocalDate.class))).thenReturn(Optional.of(quota));
+
+        var snapshot = service.getUsageSnapshot(3L);
+
+        assertEquals(1, snapshot.quota().used());
+        assertEquals(List.of(action), snapshot.audits());
+        assertEquals(quota.getUsageDate(), snapshot.usageDate());
+        verify(quotaRepository).save(quota);
+        var order = inOrder(jdbcTemplate, auditRepository);
+        order.verify(jdbcTemplate).queryForObject(anyString(), eq(Long.class), eq(3L));
+        order.verify(auditRepository).findAllByBotIdAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                3L, snapshot.usageDate().atStartOfDay(), snapshot.usageDate().plusDays(1).atStartOfDay());
+        order.verifyNoMoreInteractions();
     }
 
     @Test

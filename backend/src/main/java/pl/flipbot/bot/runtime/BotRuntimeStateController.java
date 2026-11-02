@@ -26,4 +26,5 @@ public class BotRuntimeStateController {
     ) {
         return runtimeStateService.applyEvent(botId, request);
     }
+    //
 }

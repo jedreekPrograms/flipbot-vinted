@@ -1,5 +1,6 @@
 package pl.flipbot.analytics;
 
+import org.springframework.data.jpa.domain.Specification;
 import org.junit.jupiter.api.Test;
 import pl.flipbot.dashboard.DashboardPeriod;
 import pl.flipbot.dictionary.DictionaryBrand;
@@ -19,6 +20,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -169,7 +171,7 @@ class AnalyticsServiceTest {
 
         when(modelRepository.findAll()).thenReturn(List.of(model));
         when(scanStateRepository.findAll()).thenReturn(List.of(state));
-        when(observationRepository.findAll()).thenReturn(List.of(observations));
+        when(observationRepository.findAll(any(Specification.class))).thenReturn(List.of(observations));
 
         return new AnalyticsService(
                 listingRepository,

@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.context.BotContext;
 import pl.flipbot.playwright.marketplace.MarketplaceUrls;
 import pl.flipbot.playwright.scanner.model.Listing;
+import pl.flipbot.playwright.util.ErrorMessages;
 
 import java.net.URI;
 import java.time.LocalDateTime;
@@ -14,14 +15,14 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
+import static pl.flipbot.playwright.marketstats.MarketPublicationScripts.BLOCK_PAGE_SCRIPT;
+import static pl.flipbot.playwright.marketstats.MarketPublicationScripts.EXTRACT_PUBLISHED_AT_SCRIPT;
+
 @Slf4j
 public class MarketListingPublishedAtResolver {
+    static final String TRAFFIC_BACKOFF_MARKER = "MARKET_STATS_TRAFFIC_BACKOFF";
 
-    static final String TRAFFIC_BACKOFF_MARKER =
-            "MARKET_STATS_TRAFFIC_BACKOFF";
-
-    private static final String ANONYMOUS_MARKET_OBSERVER_NAME =
-            "Anonymous Market Observer";
+    private static final String ANONYMOUS_MARKET_OBSERVER_NAME = "Anonymous Market Observer";
     private static final ZoneId MARKET_ZONE = ZoneId.of("Europe/Warsaw");
 
     private static final double DETAIL_NAVIGATION_TIMEOUT_MS = 30_000;
@@ -31,392 +32,6 @@ public class MarketListingPublishedAtResolver {
     private static final double SESSION_REFRESH_TIMEOUT_MS = 15_000;
     private static final double SESSION_REFRESH_POLL_MS = 250;
 
-    private static final String EXTRACT_PUBLISHED_AT_SCRIPT = """
-            (listingId) => {
-                const normalize = (value) =>
-                    String(value ?? "")
-                        .replace(/\\u00a0/g, " ")
-                        .replace(/\\s+/g, " ")
-                        .trim();
-
-                const fromExactUploadDateField = () => {
-                    const field = document.querySelector(
-                        '[data-testid="item-attributes-upload_date"]'
-                    );
-                    if (!field) {
-                        return null;
-                    }
-
-                    const value = field.querySelector(
-                        '[itemprop="upload_date"]'
-                    );
-                    if (!value) {
-                        return null;
-                    }
-
-                    const datetimeElement = value.matches('[datetime]')
-                        ? value
-                        : value.querySelector('[datetime]');
-                    if (datetimeElement) {
-                        const datetime = normalize(
-                            datetimeElement.getAttribute('datetime')
-                        );
-                        if (datetime) {
-                            return `ISO|${datetime}`;
-                        }
-                    }
-
-                    const text = normalize(value.textContent);
-                    return text ? `REL|${text}` : null;
-                };
-
-                const looksRelative = (value) => {
-                    const lower = normalize(value).toLowerCase();
-                    if (!lower) {
-                        return false;
-                    }
-
-                    if (lower === "teraz"
-                            || lower === "wczoraj"
-                            || lower === "przedwczoraj"
-                            || lower === "dzisiaj"
-                            || lower.startsWith("przed chwil")) {
-                        return true;
-                    }
-
-                    return /^\\d/.test(lower)
-                        && ["sek", "min", "godz", " h", "dzie", "dni", " d", "tyg", "mies", "rok", "lat"]
-                            .some(unit => lower.includes(unit));
-                };
-
-                const fromAddedLabel = () => {
-                    if (!document.body) {
-                        return null;
-                    }
-
-                    const walker = document.createTreeWalker(
-                        document.body,
-                        NodeFilter.SHOW_TEXT
-                    );
-
-                    const textNodes = [];
-                    let node;
-
-                    while ((node = walker.nextNode())) {
-                        const text = normalize(node.nodeValue);
-                        if (text) {
-                            textNodes.push({ node, text });
-                        }
-                    }
-
-                    for (let index = 0; index < textNodes.length; index++) {
-                        const item = textNodes[index];
-                        if (item.text.toLowerCase() !== "dodane") {
-                            continue;
-                        }
-
-                        let container = item.node.parentElement;
-
-                        for (let depth = 0; container && depth < 6; depth++) {
-                            const time = container.querySelector("time[datetime]");
-                            if (time) {
-                                const datetime = normalize(
-                                    time.getAttribute("datetime")
-                                );
-                                if (datetime) {
-                                    return `ISO|${datetime}`;
-                                }
-                            }
-
-                            const datetimeElement =
-                                container.querySelector("[datetime]");
-                            if (datetimeElement) {
-                                const datetime = normalize(
-                                    datetimeElement.getAttribute("datetime")
-                                );
-                                if (datetime) {
-                                    return `ISO|${datetime}`;
-                                }
-                            }
-
-                            const containerText = normalize(
-                                container.textContent
-                            );
-                            if (containerText.toLowerCase().startsWith("dodane ")) {
-                                const candidate = normalize(
-                                    containerText.substring("dodane".length)
-                                );
-                                if (looksRelative(candidate)) {
-                                    return `REL|${candidate}`;
-                                }
-                            }
-
-                            container = container.parentElement;
-                        }
-
-                        for (
-                            let nextIndex = index + 1;
-                            nextIndex < Math.min(textNodes.length, index + 12);
-                            nextIndex++
-                        ) {
-                            const candidate = textNodes[nextIndex].text;
-                            if (looksRelative(candidate)) {
-                                return `REL|${candidate}`;
-                            }
-                        }
-                    }
-
-                    return null;
-                };
-
-                const jsonLdDate = () => {
-                    const dateKeys = [
-                        "datePublished",
-                        "uploadDate",
-                        "dateCreated"
-                    ];
-
-                    const visit = (value) => {
-                        if (Array.isArray(value)) {
-                            for (const child of value) {
-                                const found = visit(child);
-                                if (found) {
-                                    return found;
-                                }
-                            }
-                            return null;
-                        }
-
-                        if (!value || typeof value !== "object") {
-                            return null;
-                        }
-
-                        const rawType = value["@type"];
-                        const types = Array.isArray(rawType)
-                            ? rawType
-                            : [rawType];
-
-                        const isItem = types.some(type => {
-                            const normalizedType =
-                                normalize(type).toLowerCase();
-                            return normalizedType === "product"
-                                || normalizedType === "offer";
-                        });
-
-                        if (isItem) {
-                            for (const key of dateKeys) {
-                                const candidate = value[key];
-                                if (typeof candidate === "string"
-                                        && normalize(candidate)) {
-                                    return normalize(candidate);
-                                }
-                            }
-                        }
-
-                        for (const child of Object.values(value)) {
-                            const found = visit(child);
-                            if (found) {
-                                return found;
-                            }
-                        }
-
-                        return null;
-                    };
-
-                    for (const script of document.querySelectorAll(
-                        'script[type="application/ld+json"]'
-                    )) {
-                        try {
-                            const found = visit(
-                                JSON.parse(script.textContent || "null")
-                            );
-                            if (found) {
-                                return found;
-                            }
-                        } catch (_) {
-                            // Ignore malformed third-party JSON-LD.
-                        }
-                    }
-
-                    return null;
-                };
-
-                const hydratedCreatedAt = () => {
-                    const id = normalize(listingId);
-                    if (!id || !document.documentElement) {
-                        return null;
-                    }
-
-                    const slash = String.fromCharCode(92);
-                    const raw = document.documentElement.outerHTML || "";
-                    const decoded = raw
-                        .split(`${slash}u0022`).join('"')
-                        .split(`${slash}\"`).join('"');
-                    const variants = decoded === raw
-                        ? [raw]
-                        : [raw, decoded];
-
-                    const idNeedles = [
-                        `"id":${id}`,
-                        `"id":"${id}"`,
-                        `"item_id":${id}`,
-                        `"item_id":"${id}"`
-                    ];
-                    const timestampKey = '"created_at_ts"';
-
-                    const readValue = (source, keyIndex) => {
-                        const colon = source.indexOf(
-                            ":",
-                            keyIndex + timestampKey.length
-                        );
-                        if (colon < 0) {
-                            return null;
-                        }
-
-                        let cursor = colon + 1;
-                        while (cursor < source.length
-                                && source.charCodeAt(cursor) <= 32) {
-                            cursor++;
-                        }
-
-                        if (cursor >= source.length) {
-                            return null;
-                        }
-
-                        const quote = source[cursor];
-                        if (quote === '"' || quote === "'") {
-                            cursor++;
-                            let end = cursor;
-
-                            while (end < source.length) {
-                                if (source[end] === quote
-                                        && source[end - 1] !== slash) {
-                                    break;
-                                }
-                                end++;
-                            }
-
-                            if (end >= source.length) {
-                                return null;
-                            }
-
-                            return normalize(source.slice(cursor, end));
-                        }
-
-                        let end = cursor;
-                        while (end < source.length) {
-                            const character = source[end];
-                            if (character === ","
-                                    || character === "}"
-                                    || character === "]"
-                                    || source.charCodeAt(end) <= 32) {
-                                break;
-                            }
-                            end++;
-                        }
-
-                        return normalize(source.slice(cursor, end));
-                    };
-
-                    for (const source of variants) {
-                        for (const needle of idNeedles) {
-                            let cursor = 0;
-
-                            while (cursor < source.length) {
-                                const idIndex =
-                                    source.indexOf(needle, cursor);
-                                if (idIndex < 0) {
-                                    break;
-                                }
-
-                                const from = Math.max(0, idIndex - 20000);
-                                const to = Math.min(
-                                    source.length,
-                                    idIndex + 20000
-                                );
-                                const fragment = source.slice(from, to);
-                                const localIdIndex = idIndex - from;
-
-                                let timestampIndex =
-                                    fragment.indexOf(timestampKey);
-                                let bestValue = null;
-                                let bestDistance =
-                                    Number.POSITIVE_INFINITY;
-
-                                while (timestampIndex >= 0) {
-                                    const value = readValue(
-                                        fragment,
-                                        timestampIndex
-                                    );
-
-                                    if (value) {
-                                        const distance = Math.abs(
-                                            timestampIndex - localIdIndex
-                                        );
-
-                                        if (distance < bestDistance) {
-                                            bestDistance = distance;
-                                            bestValue = value;
-                                        }
-                                    }
-
-                                    timestampIndex = fragment.indexOf(
-                                        timestampKey,
-                                        timestampIndex
-                                            + timestampKey.length
-                                    );
-                                }
-
-                                if (bestValue !== null) {
-                                    return bestValue;
-                                }
-
-                                cursor = idIndex + needle.length;
-                            }
-                        }
-                    }
-
-                    return null;
-                };
-
-                const exactUploadDate = fromExactUploadDateField();
-                if (exactUploadDate) {
-                    return exactUploadDate;
-                }
-
-                const visibleAdded = fromAddedLabel();
-                if (visibleAdded) {
-                    return visibleAdded;
-                }
-
-                const absolute = jsonLdDate();
-                if (absolute) {
-                    return `ISO|${absolute}`;
-                }
-
-                const hydrated = hydratedCreatedAt();
-                return hydrated
-                    ? `ISO|${hydrated}`
-                    : null;
-            }
-            """;
-
-    private static final String BLOCK_PAGE_SCRIPT = """
-            () => {
-                const text = String(
-                    document.body?.innerText
-                        || document.documentElement?.innerText
-                        || ""
-                ).toLowerCase();
-
-                return text.includes(
-                    "access to this site is blocked for this computer"
-                ) || text.includes(
-                    "twoja sesja została zablokowana"
-                );
-            }
-            """;
-
     private final BotContext context;
 
     public MarketListingPublishedAtResolver(BotContext context) {
@@ -424,9 +39,7 @@ public class MarketListingPublishedAtResolver {
     }
 
     public void captureIfNeeded(List<Listing> listings) {
-        if (!isAnonymousMarketObserver()
-                || listings == null
-                || listings.isEmpty()) {
+        if (!isAnonymousMarketObserver() || listings == null || listings.isEmpty()) {
             return;
         }
 
@@ -457,9 +70,7 @@ public class MarketListingPublishedAtResolver {
                 String detailUrl = resolveTrustedListingUrl(listing.getUrl());
 
                 if (index > 0) {
-                    page.waitForTimeout(
-                            DETAIL_INTER_NAVIGATION_DELAY_MS
-                    );
+                    page.waitForTimeout(DETAIL_INTER_NAVIGATION_DELAY_MS);
                 }
 
                 log.info(
@@ -472,11 +83,9 @@ public class MarketListingPublishedAtResolver {
 
                 try {
                     navigateToDetail(page, detailUrl, listingId);
-                    String rawPublishedAt =
-                            waitForPublishedAt(page, listingId);
+                    String rawPublishedAt = waitForPublishedAt(page, listingId);
 
-                    if (rawPublishedAt == null
-                            || rawPublishedAt.isBlank()) {
+                    if (rawPublishedAt == null || rawPublishedAt.isBlank()) {
                         unresolvedIds.add(listingId);
                         log.warn(
                                 "[MARKET STATS] Listing detail loaded but publication time was not readable. listingId={}, url={}",
@@ -486,20 +95,13 @@ public class MarketListingPublishedAtResolver {
                         continue;
                     }
 
-                    LocalDateTime observedAt =
-                            LocalDateTime.now(MARKET_ZONE);
+                    LocalDateTime observedAt = LocalDateTime.now(MARKET_ZONE);
 
-                    VintedPublishedAtParser.parse(
-                                    rawPublishedAt,
-                                    observedAt
-                            )
+                    VintedPublishedAtParser.parse(rawPublishedAt, observedAt)
                             .ifPresentOrElse(
                                     publishedAt -> {
                                         MarketStatsObservationContext
-                                                .recordPublishedAt(
-                                                        listingId,
-                                                        publishedAt
-                                                );
+                                                .recordPublishedAt(listingId, publishedAt);
 
                                         log.info(
                                                 "[MARKET STATS] Listing publication time resolved from its detail page. listingId={}, publishedAt={}, source='{}'.",
@@ -532,7 +134,7 @@ public class MarketListingPublishedAtResolver {
                             "[MARKET STATS] Could not inspect listing detail for publication time. listingId={}, url={}, reason={}",
                             listingId,
                             detailUrl,
-                            safeMessage(exception)
+                            ErrorMessages.firstLine(exception, "unknown error")
                     );
                 }
             }
@@ -576,13 +178,9 @@ public class MarketListingPublishedAtResolver {
 
             String listingId = listing.getId().trim();
 
-            MarketStatsObservationContext.recordObservedListingId(
-                    listingId
-            );
+            MarketStatsObservationContext.recordObservedListingId(listingId);
 
-            if (MarketStatsObservationContext.claimPublicationResolution(
-                    listingId
-            )) {
+            if (MarketStatsObservationContext.claimPublicationResolution(listingId)) {
                 candidates.add(listing);
             }
         }
@@ -590,11 +188,7 @@ public class MarketListingPublishedAtResolver {
         return candidates;
     }
 
-    private void navigateToDetail(
-            Page page,
-            String detailUrl,
-            String listingId
-    ) {
+    private void navigateToDetail(Page page, String detailUrl, String listingId) {
         Response response = page.navigate(
                 detailUrl,
                 new Page.NavigateOptions()
@@ -617,21 +211,13 @@ public class MarketListingPublishedAtResolver {
         throwIfBlockedPage(page, listingId);
     }
 
-    private String waitForPublishedAt(
-            Page page,
-            String listingId
-    ) {
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) DETAIL_PUBLICATION_WAIT_MS;
+    private String waitForPublishedAt(Page page, String listingId) {
+        long deadline = System.currentTimeMillis() + (long) DETAIL_PUBLICATION_WAIT_MS;
 
         while (System.currentTimeMillis() <= deadline) {
             throwIfBlockedPage(page, listingId);
 
-            Object raw = page.evaluate(
-                    EXTRACT_PUBLISHED_AT_SCRIPT,
-                    listingId
-            );
+            Object raw = page.evaluate(EXTRACT_PUBLISHED_AT_SCRIPT, listingId);
 
             if (raw instanceof String value && !value.isBlank()) {
                 return value.trim();
@@ -643,10 +229,7 @@ public class MarketListingPublishedAtResolver {
         return null;
     }
 
-    private void restoreCatalog(
-            Page page,
-            String catalogUrl
-    ) {
+    private void restoreCatalog(Page page, String catalogUrl) {
         try {
             Response response = page.navigate(
                     catalogUrl,
@@ -655,11 +238,7 @@ public class MarketListingPublishedAtResolver {
                             .setTimeout(DETAIL_NAVIGATION_TIMEOUT_MS)
             );
 
-            throwIfRateLimitedResponse(
-                    response,
-                    "filtered catalog restore",
-                    null
-            );
+            throwIfRateLimitedResponse(response, "filtered catalog restore", null);
             waitForSessionRefreshResolution(page, catalogUrl);
 
             if (!MarketplaceUrls.isCatalogUrl(page.url())) {
@@ -684,17 +263,12 @@ public class MarketListingPublishedAtResolver {
         }
     }
 
-    private void waitForSessionRefreshResolution(
-            Page page,
-            String requestedUrl
-    ) {
+    private void waitForSessionRefreshResolution(Page page, String requestedUrl) {
         if (!MarketplaceUrls.isSessionRefreshUrl(page.url())) {
             return;
         }
 
-        long deadline =
-                System.currentTimeMillis()
-                        + (long) SESSION_REFRESH_TIMEOUT_MS;
+        long deadline = System.currentTimeMillis() + (long) SESSION_REFRESH_TIMEOUT_MS;
 
         while (System.currentTimeMillis() < deadline) {
             if (page.isClosed()) {
@@ -718,11 +292,7 @@ public class MarketListingPublishedAtResolver {
         );
     }
 
-    private void throwIfRateLimitedResponse(
-            Response response,
-            String operation,
-            String listingId
-    ) {
+    private void throwIfRateLimitedResponse(Response response, String operation, String listingId) {
         if (response == null) {
             return;
         }
@@ -735,26 +305,19 @@ public class MarketListingPublishedAtResolver {
                             + status
                             + " during "
                             + operation
-                            + (listingId == null
-                            ? ""
-                            : " for listing " + listingId)
+                            + (listingId == null ? "" : " for listing " + listingId)
             );
         }
     }
 
-    private void throwIfBlockedPage(
-            Page page,
-            String listingId
-    ) {
+    private void throwIfBlockedPage(Page page, String listingId) {
         try {
             Object rawBlocked = page.evaluate(BLOCK_PAGE_SCRIPT);
 
             if (Boolean.TRUE.equals(rawBlocked)) {
                 throw trafficBackoff(
                         "Vinted rendered a session/traffic block page"
-                                + (listingId == null
-                                ? ""
-                                : " for listing " + listingId)
+                                + (listingId == null ? "" : " for listing " + listingId)
                 );
             }
         } catch (RuntimeException exception) {
@@ -765,22 +328,18 @@ public class MarketListingPublishedAtResolver {
             log.debug(
                     "[MARKET STATS] Block-page probe was inconclusive for listing {}. reason={}",
                     listingId,
-                    safeMessage(exception)
+                    ErrorMessages.firstLine(exception, "unknown error")
             );
         }
     }
 
     private IllegalStateException trafficBackoff(String reason) {
-        return new IllegalStateException(
-                TRAFFIC_BACKOFF_MARKER + ": " + reason
-        );
+        return new IllegalStateException(TRAFFIC_BACKOFF_MARKER + ": " + reason);
     }
 
     private String resolveTrustedListingUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.isBlank()) {
-            throw new IllegalArgumentException(
-                    "Market listing URL cannot be blank"
-            );
+            throw new IllegalArgumentException("Market listing URL cannot be blank");
         }
 
         URI resolved = URI.create(MarketplaceUrls.HOME)
@@ -789,21 +348,14 @@ public class MarketListingPublishedAtResolver {
         String trustedUrl = resolved.toString();
 
         if (!MarketplaceUrls.isVintedUrl(trustedUrl)) {
-            throw new IllegalArgumentException(
-                    "Refusing non-Vinted market listing URL: " + rawUrl
-            );
+            throw new IllegalArgumentException("Refusing non-Vinted market listing URL: " + rawUrl);
         }
 
         return trustedUrl;
     }
 
-    private boolean isExpectedListingUrl(
-            String rawUrl,
-            String listingId
-    ) {
-        if (!MarketplaceUrls.isVintedUrl(rawUrl)
-                || listingId == null
-                || listingId.isBlank()) {
+    private boolean isExpectedListingUrl(String rawUrl, String listingId) {
+        if (!MarketplaceUrls.isVintedUrl(rawUrl) || listingId == null || listingId.isBlank()) {
             return false;
         }
 
@@ -822,18 +374,13 @@ public class MarketListingPublishedAtResolver {
         }
     }
 
-    static String extractPublishedAtScript() {
-        return EXTRACT_PUBLISHED_AT_SCRIPT;
-    }
-
     private boolean containsTrafficBackoffMarker(Throwable throwable) {
         Throwable current = throwable;
 
         while (current != null) {
             String message = current.getMessage();
 
-            if (message != null
-                    && message.contains(TRAFFIC_BACKOFF_MARKER)) {
+            if (message != null && message.contains(TRAFFIC_BACKOFF_MARKER)) {
                 return true;
             }
 
@@ -846,25 +393,8 @@ public class MarketListingPublishedAtResolver {
     private boolean isAnonymousMarketObserver() {
         return context != null
                 && context.getBot() != null
-                && ANONYMOUS_MARKET_OBSERVER_NAME.equals(
-                        context.getBot().getName()
-                );
+                && ANONYMOUS_MARKET_OBSERVER_NAME.equals(context.getBot().getName());
     }
 
-    private String safeMessage(Throwable throwable) {
-        if (throwable == null) {
-            return "unknown error";
-        }
 
-        String message = throwable.getMessage();
-
-        if (message == null || message.isBlank()) {
-            return throwable.getClass().getSimpleName();
-        }
-
-        return message.lines()
-                .findFirst()
-                .orElse(message)
-                .trim();
-    }
 }

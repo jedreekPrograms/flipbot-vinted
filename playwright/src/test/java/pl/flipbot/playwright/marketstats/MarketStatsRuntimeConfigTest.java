@@ -7,6 +7,19 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class MarketStatsRuntimeConfigTest {
+    @Test
+    public void invalidExplicitObserverOverrideStillTakesPrecedenceOverSchedulerSetting() {
+        assertTrue(MarketStatsRuntimeConfig.resolveObserverHeadless("unknown", "false"));
+        assertFalse(MarketStatsRuntimeConfig.resolveObserverHeadless(" ", "false"));
+    }
+
+    @Test
+    public void overflowFallbackRemainsDistinctFromClampingForObserverIntervals() {
+        assertEquals(6, MarketStatsRuntimeConfig.resolveBrowserRecycleTargetCount("2147483648"));
+        assertEquals(1440L, MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes("2147483648"));
+        assertEquals(15L, MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes("9223372036854775808"));
+    }
+
 
     @Test
     public void inheritsVisibleSchedulerWhenObserverOverrideIsMissing() {
@@ -76,48 +89,34 @@ public class MarketStatsRuntimeConfigTest {
         assertEquals(
                 15L,
                 MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
-                        null,
                         null
                 )
         );
     }
 
     @Test
-    public void explicitMinuteCooldownWinsOverLegacyHours() {
+    public void explicitMinuteCooldownIsUsed() {
         assertEquals(
                 25L,
                 MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
-                        "25",
-                        "24"
+                        "25"
                 )
         );
     }
 
-    @Test
-    public void legacyHoursRemainBackwardCompatible() {
-        assertEquals(
-                120L,
-                MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
-                        null,
-                        "2"
-                )
-        );
-    }
 
     @Test
     public void refreshCooldownIsClampedToSafeBounds() {
         assertEquals(
                 5L,
                 MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
-                        "1",
-                        null
+                        "1"
                 )
         );
         assertEquals(
                 1_440L,
                 MarketStatsRuntimeConfig.resolveRefreshCooldownMinutes(
-                        "99999",
-                        null
+                        "99999"
                 )
         );
     }

@@ -69,7 +69,15 @@ public class BotApiClient extends ApiClient {
 
     public BotDetailsDto getBot(Long botId) {
 
-        HttpResponse<String> response = get("/api/bots/" + botId + "/playwright");
+        String path = "/api/bots/" + botId + "/playwright";
+        HttpResponse<String> response = get(path);
+
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            // An error envelope (e.g. {message: ...}) is not a BotDetailsDto.
+            // Never print its body: it may contain private configuration data.
+            throw new ApiException("GET " + path + " returned HTTP " + response.statusCode()
+                    + ". Bot configuration was not loaded; check the backend log for this bot.");
+        }
 
         return readBody(
                 response,

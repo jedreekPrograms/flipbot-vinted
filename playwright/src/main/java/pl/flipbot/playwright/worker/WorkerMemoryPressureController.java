@@ -1,11 +1,11 @@
 package pl.flipbot.playwright.worker;
 
 import com.sun.management.OperatingSystemMXBean;
-import lombok.extern.slf4j.Slf4j;
-
 import java.lang.management.ManagementFactory;
 import java.util.Locale;
 import java.util.function.LongSupplier;
+import lombok.extern.slf4j.Slf4j;
+import pl.flipbot.playwright.util.RuntimeEnvironment;
 
 /**
  * Protects the host from Chromium/page-file thrashing without permanently
@@ -30,7 +30,9 @@ final class WorkerMemoryPressureController {
     static final int STARTUP_CAP = 4;
     static final int ELEVATED_CAP = 8;
     static final int HIGH_CAP = 6;
-    static final int EMERGENCY_CAP = 4;
+    // The four-slot startup cap must still shrink when RAM reaches 92%.
+    // Preview windows and the observer can own additional Chromium runtimes.
+    static final int EMERGENCY_CAP = 2;
 
     static final long RECOVERY_HOLD_NANOS =
             45_000_000_000L;
@@ -80,7 +82,7 @@ final class WorkerMemoryPressureController {
     ) {
         return new WorkerMemoryPressureController(
                 configuredMaxSlots,
-                readEnabled(System.getenv(ENABLED_ENV)),
+                RuntimeEnvironment.booleanValue(ENABLED_ENV, true),
                 WorkerMemoryPressureController::readSystemMemory,
                 System::nanoTime
         );
@@ -245,25 +247,6 @@ final class WorkerMemoryPressureController {
                 osBean.getTotalMemorySize(),
                 osBean.getFreeMemorySize()
         );
-    }
-
-    private static boolean readEnabled(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return true;
-        }
-
-        return switch (raw.trim().toLowerCase(Locale.ROOT)) {
-            case "true", "1", "yes", "y", "on" -> true;
-            case "false", "0", "no", "n", "off" -> false;
-            default -> {
-                log.warn(
-                        "Invalid {}='{}'. Adaptive memory slots remain enabled.",
-                        ENABLED_ENV,
-                        raw
-                );
-                yield true;
-            }
-        };
     }
 
     private static long percent(double ratio) {

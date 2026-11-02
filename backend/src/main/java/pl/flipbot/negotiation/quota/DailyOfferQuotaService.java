@@ -40,6 +40,16 @@ public class DailyOfferQuotaService {
 
     @Transactional
     public DailyOfferQuotaResponse getQuota(Long botId) {
+        return loadUsageSnapshot(botId).quota();
+    }
+
+    @Transactional
+    public UsageSnapshot getUsageSnapshot(Long botId) {
+        return loadUsageSnapshot(botId);
+    }
+
+    /** The date, audit read and quota repair belong to the same locked transaction. */
+    private UsageSnapshot loadUsageSnapshot(Long botId) {
         lockBotRow(botId);
 
         Bot bot = getBot(botId);
@@ -47,11 +57,14 @@ public class DailyOfferQuotaService {
         DailyOfferQuota quota = dailyOfferQuotaRepository
                 .findByBot_IdAndUsageDate(botId, today)
                 .orElse(null);
-        int usageFloor = getDurableUsageFloor(botId, today);
-        int used = reconcileToUsageFloor(bot, today, quota, usageFloor);
+        DurableUsage usage = readDurableUsage(botId, today);
+        int used = reconcileToUsageFloor(bot, today, quota, usage.floor());
 
-        return createQuotaResponse(resolveDailyLimit(bot), used);
+        return new UsageSnapshot(today, createQuotaResponse(resolveDailyLimit(bot), used), List.copyOf(usage.audits()));
     }
+
+    public record UsageSnapshot(LocalDate usageDate, DailyOfferQuotaResponse quota, List<RealActionAudit> audits) {}
+
 
     @Transactional
     public OfferQuotaReservationResponse reserveSlot(
@@ -315,6 +328,12 @@ public class DailyOfferQuotaService {
             Long botId,
             LocalDate usageDate
     ) {
+        return readDurableUsage(botId, usageDate).floor();
+    }
+
+    private record DurableUsage(int floor, List<RealActionAudit> audits) {}
+
+    private DurableUsage readDurableUsage(Long botId, LocalDate usageDate) {
         Set<UUID> durableRequestIds = new HashSet<>();
 
         for (DailyOfferQuotaReservation reservation : reservationRepository
@@ -322,7 +341,8 @@ public class DailyOfferQuotaService {
             durableRequestIds.add(reservation.getRequestId());
         }
 
-        for (RealActionAudit audit : getAuditedActions(botId, usageDate)) {
+        List<RealActionAudit> audits = getAuditedActions(botId, usageDate);
+        for (RealActionAudit audit : audits) {
             if ((audit.getOutcome() != RealActionAuditOutcome.CONFIRMED
                     && audit.getOutcome() != RealActionAuditOutcome.AMBIGUOUS)
                     || audit.getRequestId() == null) {
@@ -350,7 +370,7 @@ public class DailyOfferQuotaService {
             }
         }
 
-        return durableRequestIds.size();
+        return new DurableUsage(durableRequestIds.size(), audits);
     }
 
     private List<RealActionAudit> getAuditedActions(

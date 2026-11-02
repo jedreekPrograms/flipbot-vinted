@@ -1,34 +1,27 @@
 package pl.flipbot.marketstats;
 
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import pl.flipbot.bot.configuration.BotAdditionalTarget;
-import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
-import pl.flipbot.bot.configuration.BotConfiguration;
-import pl.flipbot.bot.configuration.BotConfigurationRepository;
-import pl.flipbot.bot.configuration.TargetMode;
-import pl.flipbot.analytics.HistoryModelResolver;
-import pl.flipbot.listing.Listing;
-import pl.flipbot.listing.ListingRepository;
-import pl.flipbot.dictionary.DictionaryModel;
-import pl.flipbot.dictionary.DictionaryModelRepository;
-import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
-import pl.flipbot.negotiation.audit.RealActionAudit;
-import pl.flipbot.negotiation.audit.RealActionAuditOutcome;
-import pl.flipbot.negotiation.audit.RealActionAuditRepository;
-import pl.flipbot.negotiation.guard.RealActionType;
-
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import pl.flipbot.analytics.HistoryModelResolver;
+import pl.flipbot.bot.configuration.BotAdditionalTarget;
+import pl.flipbot.bot.configuration.BotAdditionalTargetRepository;
+import pl.flipbot.bot.configuration.BotConfiguration;
+import pl.flipbot.bot.configuration.BotConfigurationRepository;
+import pl.flipbot.dictionary.DictionaryModel;
+import pl.flipbot.dictionary.DictionaryModelRepository;
+import pl.flipbot.listing.ListingRepository;
+import pl.flipbot.marketstats.dto.CalendarModelPlanningResponse;
+import pl.flipbot.negotiation.audit.RealActionAuditRepository;
+
+import static pl.flipbot.marketstats.MarketProductMatcher.*;
 
 @Service
 @RequiredArgsConstructor
@@ -38,9 +31,6 @@ public class MarketStatsCalendarPlanningService {
     private static final long MIN_CURRENT_WINDOW_FRESHNESS_MINUTES = 120L;
     private static final long MAX_CURRENT_WINDOW_FRESHNESS_MINUTES = 360L;
     private static final long ESTIMATED_MINUTES_PER_MODEL = 2L;
-    private static final int CAPACITY_LOOKBACK_DAYS = 28;
-    private static final int FALLBACK_DAILY_CONVERSATION_CAPACITY = 5;
-    private static final int HARD_DAILY_OFFER_LIMIT = 25;
 
     private final DictionaryModelRepository modelRepository;
     private final BotConfigurationRepository configurationRepository;
@@ -51,7 +41,7 @@ public class MarketStatsCalendarPlanningService {
     private final ListingRepository listingRepository;
     private final HistoryModelResolver historyModelResolver;
 
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public List<CalendarModelPlanningResponse> getPlanning() {
         LocalDateTime now = LocalDateTime.now(MARKET_STATS_ZONE);
         List<BotConfiguration> configurations = configurationRepository.findAll();
@@ -61,13 +51,21 @@ public class MarketStatsCalendarPlanningService {
                         .filter(target -> Boolean.TRUE.equals(target.getActive()))
                         .toList();
         List<DictionaryModel> models = modelRepository.findAll();
-        ConversationCapacityProfile capacityProfile =
-                loadConversationCapacity(
+        ObservedConversationCapacity.Profile capacityProfile =
+                new ObservedConversationCapacity(realActionAuditRepository, listingRepository, historyModelResolver).load(
                         now.toLocalDate(),
                         models
                 );
         long currentWindowFreshnessMinutes =
                 currentWindowFreshnessMinutes(models.size());
+
+        Map<Long, MarketModelScanState> states = scanStateRepository.findAll().stream()
+                .collect(java.util.stream.Collectors.toMap(MarketModelScanState::getModelId, state -> state));
+        var windows = MarketStatsPlanningCalculator.windows(now);
+        Map<Long, MarketListingObservationRepository.PublicationCounts> counts = observationRepository
+                .countPlanningWindows(windows.todayStart(), windows.currentWeekStart(), windows.previousWeekStart(), now)
+                .stream().collect(java.util.stream.Collectors.toMap(
+                        MarketListingObservationRepository.PublicationCounts::getModelId, value -> value));
 
         return models.stream()
                 .sorted(
@@ -86,7 +84,7 @@ public class MarketStatsCalendarPlanningService {
                         additionalTargets,
                         capacityProfile,
                         now,
-                        currentWindowFreshnessMinutes
+                        currentWindowFreshnessMinutes, states.get(model.getId()), counts.get(model.getId())
                 ))
                 .toList();
     }
@@ -95,13 +93,12 @@ public class MarketStatsCalendarPlanningService {
             DictionaryModel model,
             List<BotConfiguration> configurations,
             List<BotAdditionalTarget> additionalTargets,
-            ConversationCapacityProfile capacityProfile,
+            ObservedConversationCapacity.Profile capacityProfile,
             LocalDateTime now,
-            long currentWindowFreshnessMinutes
+            long currentWindowFreshnessMinutes,
+            MarketModelScanState state,
+            MarketListingObservationRepository.PublicationCounts counts
     ) {
-        MarketModelScanState state = scanStateRepository
-                .findById(model.getId())
-                .orElse(null);
 
         List<Long> matchingBotIds = matchingBotIds(
                 model,
@@ -146,19 +143,8 @@ public class MarketStatsCalendarPlanningService {
         MarketStatsPlanningCalculator.CalendarWindows windows =
                 MarketStatsPlanningCalculator.windows(now);
 
-        int generation = trackingGeneration(state);
-        int offersToday = countPublishedListings(
-                model.getId(),
-                generation,
-                windows.todayStart(),
-                windows.now()
-        );
-        int offersCurrentWeek = countPublishedListings(
-                model.getId(),
-                generation,
-                windows.currentWeekStart(),
-                windows.now()
-        );
+        int offersToday = counts == null ? 0 : safeInt(counts.getToday());
+        int offersCurrentWeek = counts == null ? 0 : safeInt(counts.getCurrentWeek());
 
         LocalDateTime lastSuccessfulScanAt = state.getLastSuccessfulScanAt();
         boolean publicationCoverageEstablished =
@@ -216,21 +202,11 @@ public class MarketStatsCalendarPlanningService {
         );
 
         if (previousFullWeekAvailable) {
-            offersPreviousFullWeek = countPublishedListings(
-                    model.getId(),
-                    generation,
-                    windows.previousWeekStart(),
-                    windows.currentWeekStart()
-            );
+            offersPreviousFullWeek = counts == null ? 0 : safeInt(counts.getPreviousWeek());
             recommendationWeeklyOffers = offersPreviousFullWeek;
             recommendationEstimated = false;
         } else {
-            int observedSinceBaseline = countPublishedListings(
-                    model.getId(),
-                    generation,
-                    baselineCompleteAt,
-                    windows.now()
-            );
+            int observedSinceBaseline = counts == null ? 0 : safeInt(counts.getSinceBaseline());
             recommendationWeeklyOffers =
                     MarketStatsPlanningCalculator.projectWeeklyOffers(
                             observedSinceBaseline,
@@ -280,36 +256,6 @@ public class MarketStatsCalendarPlanningService {
         );
     }
 
-    private int countPublishedListings(
-            Long modelId,
-            Integer trackingGeneration,
-            LocalDateTime fromInclusive,
-            LocalDateTime toExclusive
-    ) {
-        if (fromInclusive == null
-                || toExclusive == null
-                || !fromInclusive.isBefore(toExclusive)) {
-            return 0;
-        }
-
-        return safeInt(
-                observationRepository.countPublishedListingsBetween(
-                        modelId,
-                        trackingGeneration,
-                        fromInclusive,
-                        toExclusive
-                )
-        );
-    }
-
-    private int trackingGeneration(MarketModelScanState state) {
-        if (state == null
-                || state.getTrackingGeneration() == null
-                || state.getTrackingGeneration() < 1) {
-            return 1;
-        }
-        return state.getTrackingGeneration();
-    }
 
     private List<Long> matchingBotIds(
             DictionaryModel model,
@@ -338,242 +284,6 @@ public class MarketStatsCalendarPlanningService {
         return List.copyOf(ids);
     }
 
-    private ConversationCapacityProfile loadConversationCapacity(
-            LocalDate today,
-            List<DictionaryModel> models
-    ) {
-        LocalDateTime from = today
-                .minusDays(CAPACITY_LOOKBACK_DAYS - 1L)
-                .atStartOfDay();
-
-        List<RealActionAudit> audits = realActionAuditRepository
-                .findAllByActionTypeAndOutcomeAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(
-                        RealActionType.FIRST_OFFER,
-                        RealActionAuditOutcome.CONFIRMED,
-                        from
-                );
-
-        if (audits.isEmpty()) {
-            return ConversationCapacityProfile.empty();
-        }
-
-        Set<Long> listingIds = audits.stream()
-                .map(RealActionAudit::getBackendListingId)
-                .filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.toSet());
-
-        Map<Long, Listing> listingsById = listingRepository
-                .findAllById(listingIds)
-                .stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        Listing::getId,
-                        listing -> listing
-                ));
-
-        Map<Long, Map<Long, Map<LocalDate, Integer>>> counts =
-                new HashMap<>();
-
-        for (RealActionAudit audit : audits) {
-            if (audit.getBotId() == null
-                    || audit.getCreatedAt() == null
-                    || audit.getBackendListingId() == null) {
-                continue;
-            }
-
-            Listing listing = listingsById.get(audit.getBackendListingId());
-            if (listing == null) {
-                continue;
-            }
-
-            Long modelId = historyModelResolver
-                    .resolveModelId(listing, models)
-                    .orElse(null);
-
-            if (modelId == null) {
-                continue;
-            }
-
-            counts.computeIfAbsent(
-                            modelId,
-                            ignored -> new HashMap<>()
-                    )
-                    .computeIfAbsent(
-                            audit.getBotId(),
-                            ignored -> new HashMap<>()
-                    )
-                    .merge(
-                            audit.getCreatedAt().toLocalDate(),
-                            1,
-                            Integer::sum
-                    );
-        }
-
-        Map<Long, Map<Long, List<Integer>>> compact = new HashMap<>();
-
-        for (Map.Entry<Long, Map<Long, Map<LocalDate, Integer>>> modelEntry
-                : counts.entrySet()) {
-            Map<Long, List<Integer>> botCounts = new HashMap<>();
-
-            for (Map.Entry<Long, Map<LocalDate, Integer>> botEntry
-                    : modelEntry.getValue().entrySet()) {
-                List<Integer> dailyCounts = botEntry.getValue()
-                        .values()
-                        .stream()
-                        .filter(value -> value != null && value > 0)
-                        .sorted()
-                        .toList();
-
-                if (!dailyCounts.isEmpty()) {
-                    botCounts.put(botEntry.getKey(), dailyCounts);
-                }
-            }
-
-            if (!botCounts.isEmpty()) {
-                compact.put(modelEntry.getKey(), Map.copyOf(botCounts));
-            }
-        }
-
-        return new ConversationCapacityProfile(Map.copyOf(compact));
-    }
-
-    private boolean matchesModel(
-            DictionaryModel model,
-            BotConfiguration configuration
-    ) {
-        if (configuration == null
-                || configuration.getBot() == null
-                || Boolean.TRUE.equals(configuration.getBot().getMarketStatsObserver())
-                || !sameText(
-                        model.getBrand().getName(),
-                        configuration.getBrand()
-                )) {
-            return false;
-        }
-
-        TargetMode modelMode = resolveTargetMode(model);
-        TargetMode configurationMode = configuration.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : configuration.getTargetMode();
-
-        if (modelMode != configurationMode) {
-            return false;
-        }
-
-        return switch (modelMode) {
-            case VINTED_MODEL -> sameText(
-                    model.getName(),
-                    configuration.getModel()
-            );
-            case SEARCH_QUERY -> sameText(
-                    model.getName(),
-                    configuration.getSearchQuery()
-            );
-        };
-    }
-
-    private boolean matchesModel(
-            DictionaryModel model,
-            BotAdditionalTarget target
-    ) {
-        if (target == null
-                || !Boolean.TRUE.equals(target.getActive())
-                || target.getConfiguration() == null
-                || target.getConfiguration().getBot() == null
-                || Boolean.TRUE.equals(
-                        target.getConfiguration().getBot().getMarketStatsObserver()
-                )
-                || !sameText(
-                        model.getBrand().getName(),
-                        target.getBrand()
-                )) {
-            return false;
-        }
-
-        TargetMode modelMode = resolveTargetMode(model);
-        TargetMode targetMode = target.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : target.getTargetMode();
-
-        if (modelMode != targetMode) {
-            return false;
-        }
-
-        return switch (modelMode) {
-            case VINTED_MODEL -> sameText(
-                    model.getName(),
-                    target.getModel()
-            );
-            case SEARCH_QUERY -> sameText(
-                    model.getName(),
-                    target.getSearchQuery()
-            );
-        };
-    }
-
-    private TargetMode resolveTargetMode(DictionaryModel model) {
-        return model.getTargetMode() == null
-                ? TargetMode.VINTED_MODEL
-                : model.getTargetMode();
-    }
-
-    private boolean sameText(String left, String right) {
-        return left != null
-                && right != null
-                && normalizeText(left).equalsIgnoreCase(normalizeText(right));
-    }
-
-    private String normalizeText(String value) {
-        return value.trim().replaceAll("\\s+", " ");
-    }
-
-    private record ConversationCapacityProfile(
-            Map<Long, Map<Long, List<Integer>>> dailyCountsByModelAndBot
-    ) {
-        static ConversationCapacityProfile empty() {
-            return new ConversationCapacityProfile(Map.of());
-        }
-
-        int dailyCapacityFor(
-                Long modelId,
-                List<Long> botIds
-        ) {
-            if (modelId == null || botIds == null || botIds.isEmpty()) {
-                return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-            }
-
-            Map<Long, List<Integer>> byBot =
-                    dailyCountsByModelAndBot.getOrDefault(
-                            modelId,
-                            Map.of()
-                    );
-
-            List<Integer> counts = new ArrayList<>();
-            for (Long botId : botIds) {
-                counts.addAll(byBot.getOrDefault(botId, List.of()));
-            }
-
-            if (counts.isEmpty()) {
-                return FALLBACK_DAILY_CONVERSATION_CAPACITY;
-            }
-
-            List<Integer> sorted = counts.stream().sorted().toList();
-            int index = Math.max(
-                    0,
-                    (int) Math.ceil(sorted.size() * 0.75d) - 1
-            );
-            int demonstrated = sorted.get(
-                    Math.min(index, sorted.size() - 1)
-            );
-
-            return Math.min(
-                    HARD_DAILY_OFFER_LIMIT,
-                    Math.max(
-                            FALLBACK_DAILY_CONVERSATION_CAPACITY,
-                            demonstrated
-                    )
-            );
-        }
-    }
 
     private int safeInt(long value) {
         return value > Integer.MAX_VALUE

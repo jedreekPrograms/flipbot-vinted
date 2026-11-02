@@ -1,11 +1,20 @@
 package pl.flipbot.listing;
 
+import java.sql.SQLException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.exception.BotNotFoundException;
 import pl.flipbot.listing.dto.CreateListingRequest;
@@ -18,17 +27,6 @@ import pl.flipbot.listing.dto.UpdateConversationIdentityRequest;
 import pl.flipbot.listing.dto.UpdateListingRequest;
 import pl.flipbot.mapper.ListingMapper;
 import pl.flipbot.negotiation.strategy.NegotiationStrategySnapshotService;
-
-import java.sql.SQLException;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 
 @Slf4j
 @Service
@@ -45,10 +43,6 @@ public class ListingService {
     private final NegotiationStrategySnapshotService negotiationStrategySnapshotService;
     private final NegotiationRecoveryCandidateService negotiationRecoveryCandidateService;
 
-    public List<ListingResponse> getDiscoveredListings(Long botId) {
-        return getListingsByStatus(botId, ListingStatus.DISCOVERED);
-    }
-
     public List<ListingResponse> getNegotiatingListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.NEGOTIATING);
     }
@@ -64,14 +58,6 @@ public class ListingService {
 
     public List<ListingResponse> getActionRequiredListings(Long botId) {
         return getListingsByStatus(botId, ListingStatus.ACTION_REQUIRED);
-    }
-
-    public List<ListingResponse> getPurchasedListings(Long botId) {
-        return getListingsByStatus(botId, ListingStatus.PURCHASED);
-    }
-
-    public List<ListingResponse> getSkippedByUserListings(Long botId) {
-        return getListingsByStatus(botId, ListingStatus.SKIPPED_BY_USER);
     }
 
     @Transactional
@@ -199,28 +185,6 @@ public class ListingService {
         );
 
         return listingsForProcessing;
-    }
-
-    @Transactional
-    public ListingResponse createListing(Long botId, CreateListingRequest request) {
-        Bot bot = botRepository.findById(botId)
-                .orElseThrow(() -> new BotNotFoundException(botId));
-
-        Listing listing = Listing.builder()
-                .listingId(request.getListingId())
-                .title(request.getTitle())
-                .url(request.getUrl())
-                .originalPrice(request.getOriginalPrice())
-                .currentPrice(request.getOriginalPrice())
-                .currentStep(1)
-                .awaitingSellerResponse(false)
-                .status(ListingStatus.NEGOTIATING)
-                .currentStepStartedAt(LocalDateTime.now())
-                .bot(bot)
-                .build();
-
-        negotiationStrategySnapshotService.pinIfMissing(listing);
-        return listingMapper.map(listingRepository.save(listing));
     }
 
     @Transactional
@@ -593,3 +557,4 @@ public class ListingService {
         return false;
     }
 }
+//

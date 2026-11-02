@@ -11,19 +11,6 @@ function baseUrl(botId: number): string {
     return `/api/bots/${botId}/additional-targets`;
 }
 
-export async function getAdditionalTargets(
-    botId: number,
-): Promise<BotAdditionalTargetDetails[]> {
-    const response = await fetch(baseUrl(botId));
-
-    await assertApiResponse(
-        response,
-        `Nie udało się pobrać dodatkowych produktów bota. Status HTTP: ${response.status}.`,
-    );
-
-    return response.json() as Promise<BotAdditionalTargetDetails[]>;
-}
-
 export async function createAdditionalTarget(
     botId: number,
     request: UpsertBotAdditionalTargetRequest,

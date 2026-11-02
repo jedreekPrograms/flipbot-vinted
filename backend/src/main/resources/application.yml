@@ -1,19 +1,25 @@
 spring:
   datasource:
-    url: "jdbc:postgresql://localhost:5433/flipbot_pr74"
-    username: postgres
-    password: postgres
+    url: "jdbc:postgresql://${FLIPBOT_DB_HOST:localhost}:${FLIPBOT_DB_PORT:5433}/${FLIPBOT_DB_NAME:flipbot_pr74}"
+    username: ${FLIPBOT_DB_USER:postgres}
+    password: ${FLIPBOT_DB_PASSWORD:postgres}
 
   jpa:
     hibernate:
-      ddl-auto: none
+      ddl-auto: validate
 
     properties:
       hibernate:
         format_sql: true
 
   flyway:
-    enabled: false
+    enabled: true
+    locations: classpath:db/schema
+    table: flipbot_schema_history
+    baseline-version: 100
+    baseline-description: working-local-schema
+    baseline-on-migrate: false
+    clean-disabled: true
 
   web:
     error:

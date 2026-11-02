@@ -49,7 +49,7 @@ public class ListingClient extends ApiClient {
                 : "/api/bots/" + botId + "/listings/discover/additional/" + additionalTargetId;
 
         HttpResponse<String> response = post(path, request);
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "discover listings for bot " + botId
                         + " target " + (additionalTargetId == null ? "MAIN" : additionalTargetId)
@@ -68,20 +68,6 @@ public class ListingClient extends ApiClient {
                 additionalTargetId == null ? "MAIN" : additionalTargetId
         );
         return claimedListings;
-    }
-
-    /**
-     * Legacy all-target view retained for non-catalog callers. New catalog
-     * processing should use getDiscoveredListings(botId, targetId), where NULL
-     * explicitly means the original/main product.
-     */
-    public List<ListingResponseDto> getDiscoveredListings(Long botId) {
-        Objects.requireNonNull(botId, "Bot id cannot be null");
-        return loadDiscovered(
-                botId,
-                "/api/bots/" + botId + "/listings/discovered",
-                "ALL"
-        );
     }
 
     public List<ListingResponseDto> getDiscoveredListings(
@@ -107,7 +93,7 @@ public class ListingClient extends ApiClient {
             String targetLabel
     ) {
         HttpResponse<String> response = get(path);
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "load discovered listings for bot " + botId + " target " + targetLabel
         );
@@ -145,7 +131,7 @@ public class ListingClient extends ApiClient {
                         path
                 );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "load negotiating listings for bot "
                         + botId
@@ -181,7 +167,7 @@ public class ListingClient extends ApiClient {
                         + "/listings/recovery-candidates"
         );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "load negotiation recovery candidates for bot " + botId
         );
@@ -211,7 +197,7 @@ public class ListingClient extends ApiClient {
                         + "/recovery-checked"
         );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "mark negotiation recovery check for listing "
                         + backendListingId
@@ -238,7 +224,7 @@ public class ListingClient extends ApiClient {
                 )
         );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "reopen negotiation for listing " + backendListingId
         );
@@ -277,7 +263,7 @@ public class ListingClient extends ApiClient {
                         path
                 );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "calculate negotiation capacity for bot "
                         + botId
@@ -333,7 +319,7 @@ public class ListingClient extends ApiClient {
                         request
                 );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "update conversation identity for listing "
                         + backendListingId
@@ -390,7 +376,7 @@ public class ListingClient extends ApiClient {
                         request
                 );
 
-        validateResponse(
+        requireSuccessfulResponse(
                 response,
                 "update listing "
                         + backendListingId
@@ -439,30 +425,5 @@ public class ListingClient extends ApiClient {
 
     }
 
-    private void validateResponse(
-            HttpResponse<String> response,
-            String operation
-    ) {
-
-        int statusCode =
-                response.statusCode();
-
-        if (statusCode >= 200
-                && statusCode < 300) {
-
-            return;
-
-        }
-
-        throw new IllegalStateException(
-                "Backend could not "
-                        + operation
-                        + ". HTTP status: "
-                        + statusCode
-                        + ", response: "
-                        + response.body()
-        );
-
-    }
 
 }

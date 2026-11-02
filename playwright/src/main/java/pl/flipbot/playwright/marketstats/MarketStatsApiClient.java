@@ -1,6 +1,13 @@
 package pl.flipbot.playwright.marketstats;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import java.net.http.HttpResponse;
+import java.time.DateTimeException;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import pl.flipbot.playwright.api.ApiClient;
 import pl.flipbot.playwright.exception.ApiException;
@@ -11,14 +18,6 @@ import pl.flipbot.playwright.marketstats.dto.MarketObservationBatchResponseDto;
 import pl.flipbot.playwright.marketstats.dto.MarketStatsTargetDto;
 import pl.flipbot.playwright.model.BotDetailsDto;
 
-import java.net.http.HttpResponse;
-import java.time.DateTimeException;
-import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 @Slf4j
 public class MarketStatsApiClient extends ApiClient {
 
@@ -28,9 +27,7 @@ public class MarketStatsApiClient extends ApiClient {
     private final Map<Long, MarketStatsTargetDto> loadedTargets =
             new HashMap<>();
 
-    public BotDetailsDto getObserverBot(
-            Long ignoredObserverBotId
-    ) {
+    public BotDetailsDto getObserverBot() {
         HttpResponse<String> response = get(
                 "/api/market-stats/observer/playwright"
         );
@@ -84,15 +81,6 @@ public class MarketStatsApiClient extends ApiClient {
         return targets;
     }
 
-    public boolean isScanNeeded() {
-        HttpResponse<String> response = get(
-                "/api/market-stats/scan-needed"
-        );
-        requireSuccess(response, "check pending market-stat baseline work");
-
-        Boolean result = readBody(response, Boolean.class);
-        return Boolean.TRUE.equals(result);
-    }
 
     public KnownMarketListingIdsDto getKnownListingIds(
             Long modelId

@@ -14,7 +14,6 @@ public class MarketStatsController {
 
     private final MarketStatsService marketStatsService;
     private final MarketStatsCalendarPlanningService calendarPlanningService;
-    private final MarketStatsScanTriggerService scanTriggerService;
     private final MarketStatsHealthService healthService;
 
     @GetMapping("/planning")
@@ -30,11 +29,6 @@ public class MarketStatsController {
     @GetMapping("/health")
     public MarketStatsHealthResponse getHealth() {
         return healthService.getHealth();
-    }
-
-    @GetMapping("/scan-needed")
-    public boolean isScanNeeded() {
-        return scanTriggerService.isScanNeeded();
     }
 
     @GetMapping("/models/{modelId}/known-listing-ids")

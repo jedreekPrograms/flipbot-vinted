@@ -2,6 +2,7 @@ package pl.flipbot.bot.configuration;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import pl.flipbot.exception.InvalidRequestException;
 import pl.flipbot.bot.Bot;
 import pl.flipbot.bot.BotRepository;
 import pl.flipbot.bot.dto.UpsertBotAdditionalTargetRequest;
@@ -54,7 +55,7 @@ public class BotAdditionalTargetRequestGuard {
         validateSharedDailyBudget(main, request);
 
         if (sameTarget(main, request)) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "Ten produkt jest już skonfigurowany jako produkt główny bota."
             );
         }
@@ -67,7 +68,7 @@ public class BotAdditionalTargetRequestGuard {
             }
 
             if (sameTarget(existing, request)) {
-                throw new IllegalArgumentException(
+                throw new InvalidRequestException(
                         "Ten produkt jest już skonfigurowany jako dodatkowy produkt tego bota."
                 );
             }
@@ -88,7 +89,7 @@ public class BotAdditionalTargetRequestGuard {
         if (request != null
                 && request.getNegotiationSteps() != null
                 && request.getNegotiationSteps().size() > dailyBudget) {
-            throw new IllegalArgumentException(
+            throw new InvalidRequestException(
                     "Liczba kroków dodatkowego produktu nie może przekraczać wspólnego dziennego budżetu bota ("
                             + dailyBudget
                             + ")."

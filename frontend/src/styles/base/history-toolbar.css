@@ -1,0 +1,131 @@
+.history-toolbar {
+    display: grid;
+
+    grid-template-columns:
+        minmax(220px, 2fr)
+        minmax(170px, 1fr)
+        minmax(190px, 1fr)
+        auto;
+
+    align-items: end;
+
+    gap: 12px;
+
+    margin-bottom: 18px;
+
+    padding: 16px;
+
+    border: 1px solid #e6e9ef;
+    border-radius: 14px;
+
+    background: #ffffff;
+}
+
+.history-search,
+.history-toolbar-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.history-search label,
+.history-toolbar-field label {
+    color: #778194;
+
+    font-size: 11px;
+    font-weight: 750;
+
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.history-search input,
+.history-toolbar-field select {
+    width: 100%;
+
+    min-height: 42px;
+
+    padding:
+        0
+        12px;
+
+    border: 1px solid #dfe4eb;
+    border-radius: 9px;
+
+    outline: none;
+
+    background: #ffffff;
+    color: #303a4c;
+
+    font-size: 13px;
+
+    transition:
+        border-color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.history-search input:focus,
+.history-toolbar-field select:focus {
+    border-color: #7fc9b1;
+
+    box-shadow:
+        0 0 0 3px rgba(49, 157, 122, 0.1);
+}
+
+.history-clear-button {
+    min-height: 42px;
+
+    white-space: nowrap;
+}
+
+.history-results-header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+
+    margin-bottom: 10px;
+
+    color: #8c95a5;
+
+    font-size: 12px;
+}
+
+.history-results-header strong {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 23px;
+    height: 23px;
+
+    padding:
+        0
+        6px;
+
+    border-radius: 999px;
+
+    background: #edf1f5;
+    color: #596476;
+
+    font-size: 11px;
+}
+
+@media (max-width: 1000px) {
+
+    .history-toolbar {
+        grid-template-columns:
+            1fr
+            1fr;
+    }
+}
+
+@media (max-width: 600px) {
+
+    .history-toolbar {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =========================================================
+   DASHBOARD PERIOD
+   ========================================================= */
