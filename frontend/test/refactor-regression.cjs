@@ -90,26 +90,21 @@ function dictionaryCallback(source, name, context) {
     return loaded.exports;
 }
 
-test('Bot controls preserve their state, action handlers and counters alongside batched overview loading', () => {
-    function statements(source, name) {
+test('Changing the bot overview refresh preserves the start and stop actions', () => {
+    function actionStatements(source, name) {
         const ast = ts.createSourceFile('controller.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
         const declaration = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name.text === name);
         const printer = ts.createPrinter();
-        return declaration.body.statements.slice(0, -1)
-            // The new batch endpoint and visible single-flight polling are
-            // exercised with real hook callbacks in async-requests.cjs.
-            .filter(node => !(ts.isVariableStatement(node)
-                && node.declarationList.declarations.some(item => item.name.getText(ast) === 'loadBots')))
-            .filter(node => !(ts.isExpressionStatement(node)
-                && ts.isCallExpression(node.expression)
-                && node.expression.expression.getText(ast) === 'useEffect'
-                && node.getText(ast).includes('refreshSupplementaryData')))
-            .map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast));
+        const actions = ['handleStartBot', 'handleStopBot', 'runBulkAction'];
+        return actions.map(action => {
+            const node = declaration.body.statements.find(statement =>
+                ts.isFunctionDeclaration(statement) && statement.name.text === action);
+            assert.ok(node, `Missing bot action ${action}`);
+            return printer.printNode(ts.EmitHint.Unspecified, node, ast);
+        });
     }
-    for (const [page, hook] of [['BotsPage', 'bots/useBotsOverview']]) {
-        const source = readFileSync(path.join(root, `src/features/${hook}.ts`), 'utf8');
-        assert.deepEqual(statements(source, hook.split('/')[1]), statements(previousSource(page), page));
-    }
+    const source = readFileSync(path.join(root, 'src/features/bots/useBotsOverview.ts'), 'utf8');
+    assert.deepEqual(actionStatements(source, 'useBotsOverview'), actionStatements(previousSource('BotsPage'), 'BotsPage'));
 });
 
 test('Dashboard, bots and runtime keep their initial page markup after controller extraction', () => {

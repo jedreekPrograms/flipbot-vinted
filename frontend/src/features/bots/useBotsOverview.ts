@@ -1,4 +1,6 @@
 import { getErrorMessage } from "../../shared/errorMessage";
+import { useLatestRequest } from "../../shared/useLatestRequest";
+import { useVisiblePolling } from "../../shared/useVisiblePolling";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getBotsOverview, getBots, startBot, stopBot } from "../../api/botsApi";
 import type { BotDailyActivity, BotRuntimeState } from "../../api/botsApi";
@@ -21,8 +23,11 @@ export default function useBotsOverview() {
     const [pendingBulkAction, setPendingBulkAction] = useState<BulkAction | null>(null);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const overviewRequests = useLatestRequest();
 
     const loadBots = useCallback(async (mode: LoadMode) => {
+        if (!overviewRequests.active) return;
+        const request = overviewRequests.start();
         if (mode === "initial") {
             setIsInitialLoading(true);
         } else {
@@ -32,9 +37,11 @@ export default function useBotsOverview() {
 
         try {
             const loadedBots = await getBots();
+            if (!overviewRequests.isCurrent(request)) return;
             setBots(loadedBots);
 
             const supplementaryResults = await getBotsOverview();
+            if (!overviewRequests.isCurrent(request)) return;
 
             const nextActivityByBotId: Record<number, BotDailyActivity> = {};
             const nextRuntimeByBotId: Record<number, BotRuntimeState> = {};
@@ -52,15 +59,17 @@ export default function useBotsOverview() {
             setRuntimeByBotId(nextRuntimeByBotId);
             setNowMs(Date.now());
         } catch (error) {
-            setErrorMessage(getErrorMessage(error, "Nie udało się pobrać botów."));
+            if (overviewRequests.isCurrent(request)) {
+                setErrorMessage(getErrorMessage(error, "Nie udało się pobrać botów."));
+            }
         } finally {
-            if (mode === "initial") {
+            if (overviewRequests.isCurrent(request)) {
                 setIsInitialLoading(false);
-            } else {
                 setIsRefreshing(false);
             }
+            overviewRequests.finish(request);
         }
-    }, []);
+    }, [overviewRequests]);
 
     useEffect(() => {
         void loadBots("initial");
@@ -71,65 +80,42 @@ export default function useBotsOverview() {
         return () => window.clearInterval(timer);
     }, []);
 
-    useEffect(() => {
-        if (bots.length === 0) {
-            return;
-        }
+    const refreshSupplementaryData = useCallback(async () => {
+        if (bots.length === 0 || overviewRequests.pending || !overviewRequests.active) return;
+        const request = overviewRequests.start();
+        try {
+            const results = await getBotsOverview();
+            if (!overviewRequests.isCurrent(request)) return;
 
-        let active = true;
-        let inFlight = false;
-
-        const refreshSupplementaryData = async () => {
-            if (!active || inFlight || document.hidden) {
-                return;
-            }
-            inFlight = true;
-            try {
-                const results = await getBotsOverview();
-
-                if (!active) {
-                    return;
+            setActivityByBotId((previous) => {
+                const next = { ...previous };
+                for (const result of results) {
+                    if (result.activity !== null) {
+                        next[result.botId] = result.activity;
+                    }
                 }
+                return next;
+            });
 
-                setActivityByBotId((previous) => {
-                    const next = { ...previous };
-                    for (const result of results) {
-                        if (result.activity !== null) {
-                            next[result.botId] = result.activity;
-                        }
+            setRuntimeByBotId((previous) => {
+                const next = { ...previous };
+                for (const result of results) {
+                    if (result.runtime !== null) {
+                        next[result.botId] = result.runtime;
                     }
-                    return next;
-                });
-
-                setRuntimeByBotId((previous) => {
-                    const next = { ...previous };
-                    for (const result of results) {
-                        if (result.runtime !== null) {
-                            next[result.botId] = result.runtime;
-                        }
-                    }
-                    return next;
-                });
-                setNowMs(Date.now());
-            } catch (error) {
+                }
+                return next;
+            });
+            setNowMs(Date.now());
+        } catch (error) {
+            if (overviewRequests.isCurrent(request)) {
                 console.error("Nie udało się odświeżyć aktywności botów.", error);
-            } finally {
-                inFlight = false;
             }
-        };
-
-        const timer = window.setInterval(() => {
-            void refreshSupplementaryData();
-        }, 5_000);
-
-        const onVisibility = () => { if (!document.hidden) void refreshSupplementaryData(); };
-        document.addEventListener("visibilitychange", onVisibility);
-        return () => {
-            document.removeEventListener("visibilitychange", onVisibility);
-            active = false;
-            window.clearInterval(timer);
-        };
-    }, [bots]);
+        } finally {
+            overviewRequests.finish(request);
+        }
+    }, [bots.length, overviewRequests]);
+    useVisiblePolling(refreshSupplementaryData, 5_000);
 
     const runningBots = useMemo(
         () => bots.filter((bot) => bot.status.toUpperCase() === "RUNNING"),

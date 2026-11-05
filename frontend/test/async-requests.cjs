@@ -201,3 +201,46 @@ test('Price planning never overwrites a newer post-save snapshot and background 
         requests[4].resolve([{ modelId: 1, offersToday: 404 }]); await settle(); assert.equal(f.writes, before);
     } finally { c.restore(); }
 });
+
+test('Bot counters keep the latest refresh when older requests finish later', async () => {
+    const c = clock();
+    try {
+        const requests = [];
+        const bots = [{ id: 1, name: 'Bot', status: 'RUNNING' }];
+        const f = fixture('features/bots/useBotsOverview.ts', {
+            getBots: async () => bots,
+            getBotsOverview: () => {
+                const request = deferred();
+                requests.push(request);
+                return request.promise;
+            },
+        });
+        const overview = active => [{ botId: 1, activity: { dailyLimitUsed: active }, runtime: null }];
+        f.render();
+        await settle();
+        let view = f.render();
+        c.tick(5000);
+        assert.equal(requests.length, 1, 'poll waits for the initial refresh');
+        requests[0].resolve(overview(4));
+        await settle();
+
+        c.tick(5000);
+        const newer = view.loadBots('background');
+        await settle();
+        requests[2].resolve(overview(6));
+        await newer;
+        requests[1].resolve(overview(5));
+        await settle();
+        view = f.render();
+        assert.equal(view.activityByBotId[1].dailyLimitUsed, 6);
+        assert.equal(view.isRefreshing, false);
+
+        const pending = view.loadBots('background');
+        await settle();
+        f.unmount();
+        const before = f.writes;
+        requests[3].resolve(overview(7));
+        await pending;
+        assert.equal(f.writes, before);
+    } finally { c.restore(); }
+});
