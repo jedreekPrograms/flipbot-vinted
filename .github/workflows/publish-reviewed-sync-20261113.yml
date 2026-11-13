@@ -1,0 +1,30 @@
+name: Publish reviewed Flipbot changes
+on:
+  push:
+    branches: [maintenance/publish-public-sync-20261113]
+    paths: [.github/workflows/publish-reviewed-sync-20261113.yml]
+permissions:
+  contents: write
+jobs:
+  stage-reviewed-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: daf94ee6b44531a1db24d1b4b0f6c045ef5fb757
+      - name: Verify and stage the two reviewed commits
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=daf94ee6b44531a1db24d1b4b0f6c045ef5fb757
+          expected=402709f7e5c0bbd7d17d6926c62be4ae3a60eb87
+          bundle="$RUNNER_TEMP/flipbot-reviewed.bundle"
+          printf '%s' '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' | base64 --decode > "$bundle"
+          echo "72ef0764c0a35e78e41de086891b5034f1258023fcacb7dec90be1070fc1fbd9  $bundle" | sha256sum --check
+          git bundle verify "$bundle"
+          git fetch --no-tags "$bundle" HEAD:refs/heads/public-sync/20261113
+          test "$(git rev-parse refs/heads/public-sync/20261113)" = "$expected"
+          test "$(git rev-list --count "$base..$expected")" = 2
+          git merge-base --is-ancestor "$base" "$expected"
+          git diff --check "$base" "$expected"
+          git push origin refs/heads/public-sync/20261113:refs/heads/public-sync/20261113
