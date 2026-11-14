@@ -1,0 +1,28 @@
+name: Stage reviewed build documentation
+on:
+  push:
+    branches: [maintenance/publish-public-sync-20261113]
+    paths: [.github/workflows/stage-public-build-guide-20261114.yml]
+permissions:
+  contents: write
+jobs:
+  stage-guide:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: 402709f7e5c0bbd7d17d6926c62be4ae3a60eb87
+      - name: Verify and stage documentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/guide.bundle"
+          printf '%s' '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' | base64 --decode > "$bundle"
+          echo "56936214bdd59a789e4c42853b805c9b8629b520a8d009796b423becfebc4745  $bundle" | sha256sum --check
+          git bundle verify "$bundle"
+          git fetch --no-tags "$bundle" HEAD:refs/heads/public-sync/20261114-docs
+          test "$(git rev-parse refs/heads/public-sync/20261114-docs)" = "895462069229d17314b01e32ba75678d77a34cd1"
+          test "$(git rev-parse 895462069229d17314b01e32ba75678d77a34cd1^)" = "402709f7e5c0bbd7d17d6926c62be4ae3a60eb87"
+          git diff --check 402709f7e5c0bbd7d17d6926c62be4ae3a60eb87 895462069229d17314b01e32ba75678d77a34cd1
+          printf '%s\n' README.md docs/build-backend-panel.md | diff - <(git diff --name-only 402709f7e5c0bbd7d17d6926c62be4ae3a60eb87 895462069229d17314b01e32ba75678d77a34cd1)
+          git push origin refs/heads/public-sync/20261114-docs:refs/heads/public-sync/20261114-docs
